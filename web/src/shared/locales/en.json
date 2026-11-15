@@ -18,6 +18,8 @@
     "back": "← Recordings",
     "untitled": "Recording {{id}}",
     "empty": "No recordings yet.",
+    "searchByTitle": "Search recordings by title",
+    "noMatches": "No recordings match your search.",
     "loadError": "Unable to load the recordings.",
     "notFound": "Recording not found.",
     "processing": "Processing…",
