@@ -59,6 +59,9 @@ enum Cmd {
     },
     Status,
     Tui,
+    Backup {
+        dest: PathBuf,
+    },
 }
 
 /// The clap command with every heading and help line in the current locale. Clap's own words
@@ -147,6 +150,10 @@ fn run(cmd: Cmd) -> commands::Outcome {
     if let Cmd::Tui = cmd {
         return tui::run();
     }
+    // Before the config: a backup needs the home only, never the secrets.
+    if let Cmd::Backup { dest } = cmd {
+        return commands::backup::run(&dest);
+    }
     let cfg = config::load(&config::home()?)?;
     let rt = tokio::runtime::Runtime::new()?;
     if let Cmd::Link { force } = cmd {
@@ -164,7 +171,9 @@ fn run(cmd: Cmd) -> commands::Outcome {
             Cmd::Rerun { id, step } => commands::rerun::run(&app, id, step.as_deref()).await,
             Cmd::Serve { host, port } => commands::serve::run(app, host, port).await,
             Cmd::Status => commands::status::run(&app).await,
-            Cmd::Init { .. } | Cmd::Link { .. } | Cmd::Tui => unreachable!("handled above"),
+            Cmd::Init { .. } | Cmd::Link { .. } | Cmd::Tui | Cmd::Backup { .. } => {
+                unreachable!("handled above")
+            }
         }
     })
 }

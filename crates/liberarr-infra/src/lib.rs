@@ -2,6 +2,7 @@
 
 pub mod ai;
 pub mod anthropic;
+pub mod backup;
 pub mod ble;
 pub mod claude_cli;
 pub mod files;
