@@ -10,5 +10,6 @@ Short pages for someone starting alone. Read them in order the first time.
 6. [Backup and restore](backup.md): `liberarr backup`, encrypted copies off the machine, restore.
 7. [Troubleshooting](troubleshooting.md): the common errors and what to do.
 8. [FAQ](faq.md).
+9. [Releases and support](releases.md): version numbers, your data across updates, what support to expect.
 
 Every command also documents itself: `liberarr --help` and `liberarr <command> --help`, in English or French (see [Configuration](configuration.md#language)).

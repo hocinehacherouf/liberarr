@@ -82,6 +82,7 @@ liberarr serve   # or the web UI on http://127.0.0.1:8484
 - [Backup and restore](docs/backup.md): `liberarr backup`, encrypted copies off the machine
 - [Troubleshooting](docs/troubleshooting.md)
 - [FAQ](docs/faq.md), including how to keep the Plaud app alongside
+- [Releases and support](docs/releases.md): version numbers, your data across updates
 
 ## Contributing
 

@@ -3,6 +3,9 @@
 **Is Liberarr affiliated with Plaud?**
 No. It is an independent project, not affiliated with, endorsed by or sponsored by Plaud. "Plaud" only names the hardware it works with.
 
+**Is Liberarr affiliated with the AI providers?**
+No. Their names only say which services Liberarr can talk to. You use each provider with your own account and key, under that provider's terms and prices.
+
 **Do I need a Plaud account?**
 Once, for `link`: the device keys are only available from your account. After that, `pull` works without it.
 
