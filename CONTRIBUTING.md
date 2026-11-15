@@ -21,6 +21,17 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 ```
 
+### Demo data
+
+To try the terminal app or the web UI without a device, an account or a real key, and for every screenshot, use the fictional recordings of the `demo_home` example. It fills a new or empty directory and refuses any other:
+
+```sh
+cargo run -p liberarr --example demo_home -- /tmp/liberarr-demo   # keep it running
+LIBERARR_HOME=/tmp/liberarr-demo cargo run -p liberarr -- tui     # in another terminal
+```
+
+The first command stays open on purpose: it stands in for a running worker, so the recording shown as processing stays in that state. Once it is stopped, the app takes that job and it fails, because the demo providers point at a closed local port. The demo recordings have no audio file.
+
 ## Pull requests
 
 - One topic per pull request. Code, comments, commit messages and docs are in English.

@@ -12,6 +12,7 @@ use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
 use ratatui::crossterm::execute;
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::Span;
 use std::process::ExitCode;
 use std::sync::OnceLock;
 
@@ -48,14 +49,23 @@ fn colors() -> bool {
     })
 }
 
+/// 24-bit colors only when the terminal says it draws them (`COLORTERM`).
+fn truecolor() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| {
+        colors() && std::env::var("COLORTERM").is_ok_and(|v| v == "truecolor" || v == "24bit")
+    })
+}
+
 /// Transitions are off without colors or with `LIBERARR_REDUCED_MOTION=1`.
 fn motion() -> bool {
     colors() && std::env::var("LIBERARR_REDUCED_MOTION").map_or(true, |v| v != "1")
 }
 
-/// Named ANSI colors only: they follow the terminal's palette, readable on dark and light themes.
+/// Named ANSI colors for text: they follow the terminal's palette, readable on dark and light
+/// themes. The brand gradient is the one 24-bit accent.
 mod theme {
-    use super::{Color, Modifier, Style, colors};
+    use super::{Color, Modifier, Span, Style, colors, truecolor};
 
     fn fg(c: Color) -> Style {
         if colors() {
@@ -88,6 +98,32 @@ mod theme {
         } else {
             Style::new().add_modifier(Modifier::REVERSED)
         }
+    }
+    pub fn bold() -> Style {
+        Style::new().add_modifier(Modifier::BOLD)
+    }
+    /// The border of a pane: the accent when it has the focus.
+    pub fn border(focused: bool) -> Style {
+        if focused { accent() } else { dim() }
+    }
+    /// The brand color at `t` (0 to 1) of its cyan-to-violet gradient; the accent without
+    /// 24-bit colors.
+    pub fn brand(t: f32) -> Style {
+        if !truecolor() {
+            return accent();
+        }
+        let mix = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t) as u8;
+        Style::new()
+            .fg(Color::Rgb(mix(0, 175), mix(190, 110), mix(215, 255)))
+            .add_modifier(Modifier::BOLD)
+    }
+    /// `text` in the brand gradient, one color step per character.
+    pub fn gradient(text: &str) -> Vec<Span<'static>> {
+        let last = text.chars().count().saturating_sub(1).max(1) as f32;
+        text.chars()
+            .enumerate()
+            .map(|(i, c)| Span::styled(c.to_string(), brand(i as f32 / last)))
+            .collect()
     }
     /// The color effects fade from: the background of most terminals.
     pub const FADE: Color = Color::Black;

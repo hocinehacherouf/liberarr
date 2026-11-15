@@ -1,33 +1,35 @@
-//! The full-screen app: recordings, detail tabs, pipeline status, rerun, device pull. Reads and
-//! writes only through the use cases `App` already exposes (the web `Backend` and `pull`).
-use super::text::{markdown, mindmap};
-use super::{LOGO, MIN_HEIGHT, MIN_WIDTH, motion, spinner, theme};
-use crate::commands::pull::{Transfer, mb, pull};
+//! The full-screen app, one dashboard: the recordings, the selected recording (summary,
+//! transcript, mind map, actions, jobs), the pipeline and the device pull. This file holds the
+//! state and the keys; `draw` draws it. Reads and writes only through the use cases `App`
+//! already exposes (the web `Backend` and `pull`).
+mod draw;
+
+use super::theme;
+use crate::commands::pull::{Transfer, pull};
 use crate::config::Config;
 use crate::container::{self, App};
-use liberarr_core::jobs::{JobInfo, JobQueue, JobStatus, Rerun, STEPS, rerun, run_job_once};
+use liberarr_core::device::ports::KeyStore;
+use liberarr_core::jobs::{JobInfo, JobQueue, Rerun, STEPS, rerun, run_job_once};
 use liberarr_core::recordings::{RecordingItem, RecordingStatus};
 use liberarr_core::summaries::MeetingSummary;
-use liberarr_core::transcription::{Transcript, timestamp};
+use liberarr_core::transcription::Transcript;
 use liberarr_web::Backend;
+use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::style::Style;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{
-    Block, BorderType, Clear, Gauge, List, ListItem, ListState, Paragraph, Tabs, Wrap,
-};
-use ratatui::{DefaultTerminal, Frame};
+use ratatui::widgets::ListState;
 use rust_i18n::t;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
-use tachyonfx::{EffectManager, Interpolation, Motion, fx};
+use tachyonfx::EffectManager;
 use tokio::runtime::Handle;
 
 const IDLE: Duration = Duration::from_secs(2);
-/// The list and the open recording are reloaded this often.
+/// The list and the selected recording are reloaded this often.
 const REFRESH: Duration = Duration::from_secs(1);
 const TOAST: Duration = Duration::from_secs(5);
+/// The recordings and the preview are side by side from this width; below it, one at a time.
+const WIDE: u16 = 100;
 
 pub enum Exit {
     Quit,
@@ -41,8 +43,8 @@ enum Phase {
     Idle,
     Searching,
     Downloading(Transfer),
-    /// The outcome lines, `true` when something failed.
-    Finished(Vec<String>, bool),
+    /// The outcome lines, `true` when something failed, and when the pull ended.
+    Finished(Vec<String>, bool, Instant),
 }
 
 struct PullState {
@@ -72,20 +74,29 @@ const TABS: [Tab; 5] = [
     Tab::Jobs,
 ];
 
+/// The pane that takes the arrow keys. Below `WIDE` columns it is also the only one shown.
+#[derive(PartialEq, Clone, Copy)]
+enum Focus {
+    List,
+    Preview,
+}
+
+/// The selected recording, shown in the preview.
 struct Detail {
     id: i64,
-    tab: usize,
-    scroll: u16,
-    action: usize,
     transcript: Option<Transcript>,
     summary: Option<MeetingSummary>,
     jobs: Vec<JobInfo>,
 }
 
-enum View {
-    List,
-    Detail(Box<Detail>),
-    Pull,
+/// One running effect of each kind: a new one replaces the one still playing.
+/// `Default` only because `EffectManager::default` asks for it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+enum Fx {
+    #[default]
+    Reveal,
+    Preview,
+    Finished,
 }
 
 struct Ui {
@@ -95,14 +106,31 @@ struct Ui {
     list: ListState,
     filter: String,
     filtering: bool,
-    view: View,
-    /// Step menu of the rerun picker, open over the current view.
+    focus: Focus,
+    detail: Option<Detail>,
+    tab: usize,
+    scroll: u16,
+    action: usize,
+    /// Step menu of the rerun picker, open over the dashboard.
     picker: Option<usize>,
+    help: bool,
     toast: Option<(String, Style, Instant)>,
     pull: Arc<Mutex<PullState>>,
     worker_error: Arc<Mutex<Option<String>>>,
-    fx: EffectManager<()>,
-    transition: bool,
+    /// A device is linked (read once, at start).
+    device: bool,
+    last_pull: Option<jiff::Timestamp>,
+    fx: EffectManager<Fx>,
+    /// Effects to start at the next frame: the whole screen, the preview content, the row of
+    /// the recording that just finished.
+    reveal: bool,
+    swap: bool,
+    finished: Option<i64>,
+    /// When the preview content last changed.
+    swapped: Instant,
+    /// Set by the last frame: the two panes are side by side; rows of the preview content.
+    wide: bool,
+    page: u16,
     refreshed: Instant,
 }
 
@@ -113,9 +141,9 @@ pub fn run(term: &mut DefaultTerminal, cfg: Config) -> Result<Exit, AnyError> {
     let warnings = container::warnings(&cfg);
     let app = Arc::new(App::open(cfg)?);
     rt.block_on(app.db.reset_stale())?;
-    let worker_error = Arc::new(Mutex::new(None));
+    let mut ui = Ui::new(app, rt.handle().clone());
     let worker = {
-        let (app, err) = (Arc::clone(&app), Arc::clone(&worker_error));
+        let (app, err) = (Arc::clone(&ui.app), Arc::clone(&ui.worker_error));
         rt.spawn(async move {
             loop {
                 match run_job_once(&app.db, &*app).await {
@@ -128,26 +156,6 @@ pub fn run(term: &mut DefaultTerminal, cfg: Config) -> Result<Exit, AnyError> {
                 }
             }
         })
-    };
-    let mut ui = Ui {
-        app,
-        rt: rt.handle().clone(),
-        items: Vec::new(),
-        list: ListState::default().with_selected(Some(0)),
-        filter: String::new(),
-        filtering: false,
-        view: View::List,
-        picker: None,
-        toast: None,
-        pull: Arc::new(Mutex::new(PullState {
-            running: false,
-            phase: Phase::Idle,
-            downloaded: 0,
-        })),
-        worker_error,
-        fx: EffectManager::default(),
-        transition: true,
-        refreshed: Instant::now(),
     };
     if !warnings.is_empty() {
         ui.toast(warnings.join(" "), theme::warn());
@@ -165,13 +173,45 @@ fn key(ev: &Event) -> Option<KeyEvent> {
     }
 }
 
-fn local(t: jiff::Timestamp) -> String {
-    t.to_zoned(jiff::tz::TimeZone::system())
-        .strftime("%Y-%m-%d %H:%M")
-        .to_string()
-}
-
 impl Ui {
+    fn new(app: Arc<App>, rt: Handle) -> Ui {
+        Ui {
+            // An unreadable key file shows as "no device"; a pull reports the reason.
+            device: container::keys(&app.cfg)
+                .load()
+                .is_ok_and(|k| !k.is_empty()),
+            app,
+            rt,
+            items: Vec::new(),
+            list: ListState::default().with_selected(Some(0)),
+            filter: String::new(),
+            filtering: false,
+            focus: Focus::List,
+            detail: None,
+            tab: 0,
+            scroll: 0,
+            action: 0,
+            picker: None,
+            help: false,
+            toast: None,
+            pull: Arc::new(Mutex::new(PullState {
+                running: false,
+                phase: Phase::Idle,
+                downloaded: 0,
+            })),
+            worker_error: Arc::new(Mutex::new(None)),
+            last_pull: None,
+            fx: EffectManager::default(),
+            reveal: true,
+            swap: false,
+            finished: None,
+            swapped: Instant::now(),
+            wide: false,
+            page: 0,
+            refreshed: Instant::now(),
+        }
+    }
+
     fn toast(&mut self, text: impl Into<String>, style: Style) {
         self.toast = Some((text.into(), style, Instant::now()));
     }
@@ -189,20 +229,33 @@ impl Ui {
             .collect()
     }
 
-    fn selected_id(&self) -> Option<i64> {
-        let v = self.visible();
-        self.list.selected().and_then(|i| v.get(i)).map(|i| i.id)
+    fn processing(&self) -> bool {
+        self.items
+            .iter()
+            .any(|i| i.status == RecordingStatus::Processing)
     }
 
-    /// Reloads the list, and the open recording.
+    /// Reloads the list, the selected recording and the last pull. The selection stays on the
+    /// same recording when new ones arrive above it.
     fn reload(&mut self) -> Result<(), AnyError> {
-        self.items = self.rt.block_on(self.app.list())?;
-        if let View::Detail(d) = &mut self.view {
-            let id = d.id;
-            d.jobs = self.rt.block_on(self.app.jobs(id))?;
-            d.transcript = self.rt.block_on(self.app.transcript(id))?;
-            d.summary = self.rt.block_on(self.app.summary(id))?;
+        let items = self.rt.block_on(self.app.list())?;
+        if let Some(done) = items.iter().find(|new| {
+            new.status == RecordingStatus::Done
+                && self
+                    .items
+                    .iter()
+                    .any(|old| old.id == new.id && old.status == RecordingStatus::Processing)
+        }) {
+            self.finished = Some(done.id);
         }
+        self.items = items;
+        let selected = self.detail.as_ref().map(|d| d.id);
+        let at = self.visible().iter().position(|i| Some(i.id) == selected);
+        if at.is_some() {
+            self.list.select(at);
+        }
+        self.sync(true)?;
+        self.last_pull = self.rt.block_on(self.app.db.last_pull())?;
         let error = lock(&self.worker_error).take();
         if let Some(e) = error {
             self.toast(
@@ -211,6 +264,37 @@ impl Ui {
             );
         }
         self.refreshed = Instant::now();
+        Ok(())
+    }
+
+    /// Makes the preview show the selected recording: loaded when the selection changed (it
+    /// then starts at the top) or when `reload` is set.
+    fn sync(&mut self, reload: bool) -> Result<(), AnyError> {
+        let visible = self.visible();
+        let at = self
+            .list
+            .selected()
+            .unwrap_or(0)
+            .min(visible.len().saturating_sub(1));
+        let id = visible.get(at).map(|i| i.id);
+        self.list.select(Some(at));
+        let Some(id) = id else {
+            self.detail = None;
+            self.focus = Focus::List;
+            return Ok(());
+        };
+        let changed = self.detail.as_ref().is_none_or(|d| d.id != id);
+        if changed {
+            (self.scroll, self.action, self.swap) = (0, 0, true);
+        }
+        if changed || reload {
+            self.detail = Some(Detail {
+                id,
+                jobs: self.rt.block_on(self.app.jobs(id))?,
+                transcript: self.rt.block_on(self.app.transcript(id))?,
+                summary: self.rt.block_on(self.app.summary(id))?,
+            });
+        }
         Ok(())
     }
 
@@ -230,14 +314,14 @@ impl Ui {
             let elapsed = last.elapsed();
             last = Instant::now();
             term.draw(|f| self.draw(f, elapsed))?;
-            // Fast frames while something moves, slower otherwise.
-            let moving = self.fx.is_running()
-                || lock(&self.pull).running
-                || self
-                    .items
-                    .iter()
-                    .any(|i| i.status == RecordingStatus::Processing);
-            let wait = if moving { 50 } else { 250 };
+            // Fast frames while something moves, slower otherwise. Input is never blocked longer.
+            let wait = if self.fx.is_running() {
+                30
+            } else if lock(&self.pull).running || self.processing() {
+                50
+            } else {
+                250
+            };
             if !event::poll(Duration::from_millis(wait))? {
                 continue;
             }
@@ -252,22 +336,22 @@ impl Ui {
         }
     }
 
-    fn open_view(&mut self, view: View) -> Result<(), AnyError> {
-        self.view = view;
-        self.transition = true;
-        self.reload()
-    }
-
     fn on_key(&mut self, k: KeyEvent) -> Result<Option<Exit>, AnyError> {
+        if self.help {
+            self.help = false;
+            return Ok(None);
+        }
         if let Some(sel) = self.picker {
             match k.code {
-                KeyCode::Up => self.picker = Some(sel.saturating_sub(1)),
-                KeyCode::Down => self.picker = Some((sel + 1).min(STEPS.len() - 1)),
+                KeyCode::Up | KeyCode::Char('k') => self.picker = Some(sel.saturating_sub(1)),
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.picker = Some((sel + 1).min(STEPS.len() - 1));
+                }
                 KeyCode::Enter => {
                     self.picker = None;
                     self.rerun(STEPS[sel])?;
                 }
-                KeyCode::Esc => self.picker = None,
+                KeyCode::Esc | KeyCode::Char('q') => self.picker = None,
                 _ => {}
             }
             return Ok(None);
@@ -282,104 +366,105 @@ impl Ui {
                 _ => {}
             }
             self.list.select(Some(0));
-            return Ok(None);
+            return self.sync(false).map(|()| None);
         }
-        match &mut self.view {
-            View::List => match k.code {
-                KeyCode::Char('q') | KeyCode::Esc => return Ok(Some(Exit::Quit)),
-                KeyCode::Up | KeyCode::Char('k') => self.list.select_previous(),
-                KeyCode::Down | KeyCode::Char('j') => self.list.select_next(),
-                KeyCode::Char('/') => self.filtering = true,
-                KeyCode::Char('p') => self.open_view(View::Pull)?,
-                KeyCode::Char('r') if self.selected_id().is_some() => self.picker = Some(0),
-                KeyCode::Char('s') => return Ok(self.settings()),
-                KeyCode::Enter => {
-                    if let Some(id) = self.selected_id() {
-                        self.open_view(View::Detail(Box::new(Detail {
-                            id,
-                            tab: 0,
-                            scroll: 0,
-                            action: 0,
-                            transcript: None,
-                            summary: None,
-                            jobs: Vec::new(),
-                        })))?;
-                    }
-                }
-                _ => {}
-            },
-            View::Detail(d) => {
-                let actions = d.summary.as_ref().map_or(0, |s| s.actions.len());
-                let on_actions = TABS[d.tab] == Tab::Actions;
-                match k.code {
-                    KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('q') => {
-                        self.open_view(View::List)?;
-                    }
-                    KeyCode::Right | KeyCode::Tab => {
-                        d.tab = (d.tab + 1) % TABS.len();
-                        d.scroll = 0;
-                        self.transition = true;
-                    }
-                    KeyCode::Left | KeyCode::BackTab => {
-                        d.tab = (d.tab + TABS.len() - 1) % TABS.len();
-                        d.scroll = 0;
-                        self.transition = true;
-                    }
-                    KeyCode::Char(c @ '1'..='5') => {
-                        d.tab = c as usize - '1' as usize;
-                        d.scroll = 0;
-                        self.transition = true;
-                    }
-                    KeyCode::Up | KeyCode::Char('k') if on_actions => {
-                        d.action = d.action.saturating_sub(1);
-                    }
-                    KeyCode::Down | KeyCode::Char('j') if on_actions => {
-                        d.action = (d.action + 1).min(actions.saturating_sub(1));
-                    }
-                    KeyCode::Up | KeyCode::Char('k') => d.scroll = d.scroll.saturating_sub(1),
-                    KeyCode::Down | KeyCode::Char('j') => d.scroll = d.scroll.saturating_add(1),
-                    KeyCode::PageUp => d.scroll = d.scroll.saturating_sub(10),
-                    KeyCode::PageDown => d.scroll = d.scroll.saturating_add(10),
-                    KeyCode::Char(' ') if on_actions && d.action < actions => {
-                        let (id, index) = (d.id, d.action);
-                        let Some(a) = d.summary.as_ref().map(|s| s.actions[index].clone()) else {
-                            return Ok(None);
-                        };
-                        let updated = self
-                            .rt
-                            .block_on(self.app.toggle_action(id, index, &a.action, !a.done));
-                        match updated {
-                            Ok(s) => {
-                                if let View::Detail(d) = &mut self.view {
-                                    d.summary = Some(s);
-                                }
-                            }
-                            Err(e) => self.toast(e.to_string(), theme::error()),
-                        }
-                    }
-                    KeyCode::Char('r') => self.picker = Some(0),
-                    _ => {}
-                }
+        let actions = self
+            .detail
+            .as_ref()
+            .and_then(|d| d.summary.as_ref())
+            .map_or(0, |s| s.actions.len());
+        let on_actions = TABS[self.tab] == Tab::Actions;
+        let page = self.page.max(1);
+        match (k.code, self.focus) {
+            (KeyCode::Char('q'), _) => return Ok(Some(Exit::Quit)),
+            (KeyCode::Char('?'), _) => self.help = true,
+            (KeyCode::Char('p'), _) => self.start_pull(),
+            (KeyCode::Char('s'), _) => return Ok(self.settings()),
+            (KeyCode::Char('r'), _) if self.detail.is_some() => self.picker = Some(0),
+            (KeyCode::Char('/'), _) => (self.filtering, self.focus) = (true, Focus::List),
+            (KeyCode::Right, _) => self.show_tab((self.tab + 1) % TABS.len()),
+            (KeyCode::Left, _) => self.show_tab((self.tab + TABS.len() - 1) % TABS.len()),
+            (KeyCode::Char(c @ '1'..='5'), _) => self.show_tab(c as usize - '1' as usize),
+            (KeyCode::Enter | KeyCode::Tab | KeyCode::BackTab, Focus::List)
+                if self.detail.is_some() =>
+            {
+                self.focus = Focus::Preview;
             }
-            View::Pull => match k.code {
-                KeyCode::Esc | KeyCode::Char('q') => self.open_view(View::List)?,
-                KeyCode::Enter | KeyCode::Char('p') => self.start_pull(),
-                _ => {}
-            },
+            (
+                KeyCode::Esc | KeyCode::Backspace | KeyCode::Tab | KeyCode::BackTab,
+                Focus::Preview,
+            ) => self.focus = Focus::List,
+            (KeyCode::Esc, Focus::List) if !self.filter.is_empty() => {
+                self.filter.clear();
+                self.list.select(Some(0));
+            }
+            (KeyCode::Esc, Focus::List) => return Ok(Some(Exit::Quit)),
+            (KeyCode::Up | KeyCode::Char('k'), Focus::List) => self.move_selection(-1),
+            (KeyCode::Down | KeyCode::Char('j'), Focus::List) => self.move_selection(1),
+            // Side by side, the page keys scroll the preview whichever pane has the focus.
+            (KeyCode::PageUp, Focus::List) if !self.wide => self.move_selection(-10),
+            (KeyCode::PageDown, Focus::List) if !self.wide => self.move_selection(10),
+            (KeyCode::Up | KeyCode::Char('k'), Focus::Preview) if on_actions => {
+                self.action = self.action.saturating_sub(1);
+            }
+            (KeyCode::Down | KeyCode::Char('j'), Focus::Preview) if on_actions => {
+                self.action = (self.action + 1).min(actions.saturating_sub(1));
+            }
+            (KeyCode::Char(' '), Focus::Preview) if on_actions => self.toggle_action(),
+            // The frame clamps the scroll to the content.
+            (KeyCode::Up | KeyCode::Char('k'), Focus::Preview) => {
+                self.scroll = self.scroll.saturating_sub(1);
+            }
+            (KeyCode::Down | KeyCode::Char('j'), Focus::Preview) => {
+                self.scroll = self.scroll.saturating_add(1);
+            }
+            (KeyCode::PageUp, _) => self.scroll = self.scroll.saturating_sub(page),
+            (KeyCode::PageDown, _) => self.scroll = self.scroll.saturating_add(page),
+            _ => {}
         }
+        self.sync(false)?;
         Ok(None)
     }
 
-    fn current_id(&self) -> Option<i64> {
-        match &self.view {
-            View::Detail(d) => Some(d.id),
-            _ => self.selected_id(),
+    fn show_tab(&mut self, tab: usize) {
+        if tab != self.tab {
+            (self.tab, self.scroll, self.swap) = (tab, 0, true);
+        }
+    }
+
+    fn move_selection(&mut self, by: isize) {
+        let last = self.visible().len().saturating_sub(1);
+        let at = self.list.selected().unwrap_or(0).saturating_add_signed(by);
+        self.list.select(Some(at.min(last)));
+    }
+
+    fn toggle_action(&mut self) {
+        let Some(d) = &self.detail else { return };
+        let (id, index) = (d.id, self.action);
+        let Some(a) = d
+            .summary
+            .as_ref()
+            .and_then(|s| s.actions.get(index))
+            .cloned()
+        else {
+            return;
+        };
+        let updated = self
+            .rt
+            .block_on(self.app.toggle_action(id, index, &a.action, !a.done));
+        match updated {
+            Ok(s) => {
+                if let Some(d) = &mut self.detail {
+                    d.summary = Some(s);
+                }
+            }
+            Err(e) => self.toast(e.to_string(), theme::error()),
         }
     }
 
     /// Same guard as the web API: a second run while the pipeline runs would call the AI twice.
     fn rerun(&mut self, step: &str) -> Result<(), AnyError> {
-        let Some(id) = self.current_id() else {
+        let Some(id) = self.detail.as_ref().map(|d| d.id) else {
             return Ok(());
         };
         if self.rt.block_on(rerun(&self.app.db, id, Some(step)))? == Rerun::Busy {
@@ -395,12 +480,7 @@ impl Ui {
 
     /// The settings reopen the app with a new configuration: not while work is in progress.
     fn settings(&mut self) -> Option<Exit> {
-        let working = lock(&self.pull).running
-            || self
-                .items
-                .iter()
-                .any(|i| i.status == RecordingStatus::Processing);
-        if working {
+        if lock(&self.pull).running || self.processing() {
             self.toast(t!("tui.settings_busy").into_owned(), theme::warn());
             return None;
         }
@@ -463,411 +543,177 @@ impl Ui {
             };
             let mut s = lock(&state);
             s.running = false;
-            s.phase = Phase::Finished(lines, failed);
+            s.phase = Phase::Finished(lines, failed, Instant::now());
         });
-    }
-
-    fn draw(&mut self, f: &mut Frame, elapsed: Duration) {
-        let area = f.area();
-        if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
-            f.render_widget(
-                Paragraph::new(t!("tui.too_small").into_owned()).wrap(Wrap { trim: true }),
-                area,
-            );
-            return;
-        }
-        let [header, main, status, footer] = Layout::vertical([
-            Constraint::Length(2),
-            Constraint::Min(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ])
-        .areas(area);
-        self.draw_header(f, header);
-        match &self.view {
-            View::List => self.draw_list(f, main),
-            View::Detail(d) => self.draw_detail(f, main, d),
-            View::Pull => self.draw_pull(f, main),
-        }
-        if let Some(sel) = self.picker {
-            draw_picker(f, main, sel);
-        }
-        if let Some((text, style, _)) = &self.toast {
-            f.render_widget(Paragraph::new(Line::styled(text.clone(), *style)), status);
-        }
-        let hints = match (&self.view, self.filtering) {
-            (_, true) => t!("tui.hints_filter"),
-            (View::List, _) => t!("tui.hints_list"),
-            (View::Detail(_), _) => t!("tui.hints_detail"),
-            (View::Pull, _) => t!("tui.hints_pull"),
-        };
-        f.render_widget(
-            Paragraph::new(Line::styled(hints.into_owned(), theme::dim())),
-            footer,
-        );
-        if self.transition && motion() {
-            self.fx.add_effect(fx::sweep_in(
-                Motion::LeftToRight,
-                12,
-                0,
-                theme::FADE,
-                (280, Interpolation::QuadOut),
-            ));
-        }
-        self.transition = false;
-        self.fx
-            .process_effects(elapsed.into(), f.buffer_mut(), main);
-    }
-
-    fn draw_header(&self, f: &mut Frame, area: Rect) {
-        let title = match &self.view {
-            View::List => t!("tui.recordings").into_owned(),
-            View::Detail(d) => d
-                .summary
-                .as_ref()
-                .map(|s| s.title.clone())
-                .or_else(|| {
-                    self.items
-                        .iter()
-                        .find(|i| i.id == d.id)
-                        .and_then(|i| i.title.clone())
-                })
-                .unwrap_or_else(|| t!("tui.untitled").into_owned()),
-            View::Pull => t!("tui.pull_title").into_owned(),
-        };
-        let processing = self
-            .items
-            .iter()
-            .filter(|i| i.status == RecordingStatus::Processing)
-            .count();
-        let mut right = Vec::new();
-        if lock(&self.pull).running {
-            right.push(Span::styled(
-                format!("{} {}  ", spinner(), t!("tui.pulling")),
-                theme::accent(),
-            ));
-        }
-        right.push(if processing > 0 {
-            Span::styled(
-                format!("{} {}", spinner(), t!("tui.processing", count = processing)),
-                theme::accent(),
-            )
-        } else {
-            Span::styled(format!("● {}", t!("tui.idle")), theme::ok())
-        });
-        let [left_area, right_area] =
-            Layout::horizontal([Constraint::Min(10), Constraint::Length(36)]).areas(area);
-        f.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled("▌liberarr  ", theme::accent()),
-                Span::raw(title),
-            ])),
-            left_area,
-        );
-        f.render_widget(
-            Paragraph::new(Line::from(right)).alignment(ratatui::layout::Alignment::Right),
-            right_area,
-        );
-    }
-
-    fn draw_list(&mut self, f: &mut Frame, area: Rect) {
-        let [bar, list_area] =
-            Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
-        let count = self.visible().len();
-        let search = if self.filtering || !self.filter.is_empty() {
-            Line::from(vec![
-                Span::styled("/ ", theme::accent()),
-                Span::raw(self.filter.clone()),
-                Span::styled(if self.filtering { "▏" } else { "" }, theme::accent()),
-            ])
-        } else {
-            Line::styled(t!("tui.count", count = count).into_owned(), theme::dim())
-        };
-        f.render_widget(Paragraph::new(search), bar);
-        if self.items.is_empty() {
-            let mut lines: Vec<Line> = LOGO
-                .iter()
-                .map(|l| Line::styled(*l, theme::accent()))
-                .collect();
-            lines.push(Line::raw(""));
-            lines.push(Line::raw(t!("tui.empty").into_owned()));
-            let [c] = Layout::vertical([Constraint::Length(7)])
-                .flex(Flex::Center)
-                .areas(list_area);
-            f.render_widget(
-                Paragraph::new(lines)
-                    .alignment(ratatui::layout::Alignment::Center)
-                    .wrap(Wrap { trim: true }),
-                c,
-            );
-            return;
-        }
-        let rows: Vec<ListItem> = self
-            .visible()
-            .iter()
-            .map(|i| {
-                let (mark, style, note) = match i.status {
-                    RecordingStatus::Done if i.no_speech => (
-                        "○".to_string(),
-                        theme::dim(),
-                        t!("no_speech.marker").into_owned(),
-                    ),
-                    RecordingStatus::Done => ("●".to_string(), theme::ok(), String::new()),
-                    RecordingStatus::Processing => {
-                        (spinner().to_string(), theme::accent(), String::new())
-                    }
-                    RecordingStatus::Failed => (
-                        "▲".to_string(),
-                        theme::error(),
-                        t!(
-                            "tui.failed_step",
-                            step = i.failed_step.as_deref().unwrap_or("?")
-                        )
-                        .into_owned(),
-                    ),
-                };
-                let duration = i.duration_s.map(timestamp).unwrap_or_default();
-                // Status and date first: a long title never pushes them off screen.
-                ListItem::new(Line::from(vec![
-                    Span::styled(format!("{mark} "), style),
-                    Span::styled(
-                        format!("{}  {duration:>5}  ", local(i.created_at)),
-                        theme::dim(),
-                    ),
-                    Span::raw(
-                        i.title
-                            .clone()
-                            .unwrap_or_else(|| t!("tui.untitled").into_owned()),
-                    ),
-                    Span::styled(format!("  {note}"), style),
-                ]))
-            })
-            .collect();
-        if self.list.selected().is_some_and(|s| s >= count) {
-            self.list.select(Some(count.saturating_sub(1)));
-        }
-        f.render_stateful_widget(
-            List::new(rows)
-                .highlight_style(theme::selected())
-                .highlight_symbol("▶ "),
-            list_area,
-            &mut self.list,
-        );
-    }
-
-    fn draw_detail(&self, f: &mut Frame, area: Rect, d: &Detail) {
-        let [tabs_area, body] =
-            Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).areas(area);
-        let done = d
-            .summary
-            .as_ref()
-            .map_or(0, |s| s.actions.iter().filter(|a| a.done).count());
-        let total = d.summary.as_ref().map_or(0, |s| s.actions.len());
-        let titles = [
-            t!("tui.tab_summary").into_owned(),
-            t!("tui.tab_transcript").into_owned(),
-            t!("tui.tab_mindmap").into_owned(),
-            format!("{} ({done}/{total})", t!("tui.tab_actions")),
-            t!("tui.tab_jobs").into_owned(),
-        ];
-        f.render_widget(
-            Tabs::new(titles)
-                .select(d.tab)
-                .highlight_style(theme::selected())
-                .divider("│"),
-            tabs_area,
-        );
-        let none = |key: &str| vec![Line::styled(t!(key).into_owned(), theme::dim())];
-        let no_summary = if d.transcript.as_ref().is_some_and(|t| !t.has_speech()) {
-            "no_speech.detail"
-        } else {
-            "tui.no_summary"
-        };
-        let lines: Vec<Line> = match TABS[d.tab] {
-            Tab::Summary => d
-                .summary
-                .as_ref()
-                .map_or_else(|| none(no_summary), |s| markdown(&s.summary_md)),
-            Tab::Transcript => match &d.transcript {
-                None => none("tui.no_transcript"),
-                Some(t) if !t.has_speech() => none("no_speech.detail"),
-                Some(t) if t.segments.is_empty() => {
-                    t.text.lines().map(|l| Line::raw(l.to_string())).collect()
-                }
-                Some(t) => t
-                    .segments
-                    .iter()
-                    .map(|s| {
-                        Line::from(vec![
-                            Span::styled(format!("{}  ", timestamp(s.start)), theme::dim()),
-                            Span::raw(s.text.trim().to_string()),
-                        ])
-                    })
-                    .collect(),
-            },
-            Tab::Mindmap => d
-                .summary
-                .as_ref()
-                .map_or_else(|| none(no_summary), |s| mindmap(&s.mindmap)),
-            Tab::Actions => match &d.summary {
-                None => none(no_summary),
-                Some(s) if s.actions.is_empty() => none("tui.no_actions"),
-                Some(s) => s
-                    .actions
-                    .iter()
-                    .enumerate()
-                    .map(|(i, a)| {
-                        let check = if a.done { "[x] " } else { "[ ] " };
-                        let mut extra = Vec::new();
-                        if let Some(o) = &a.owner {
-                            extra.push(o.clone());
-                        }
-                        if let Some(due) = &a.due {
-                            extra.push(due.clone());
-                        }
-                        if let Some(at) = a.start {
-                            extra.push(timestamp(at));
-                        }
-                        let style = if i == d.action {
-                            theme::selected()
-                        } else if a.done {
-                            theme::dim()
-                        } else {
-                            Style::new()
-                        };
-                        Line::from(vec![
-                            Span::styled(format!("{check}{}", a.action), style),
-                            Span::styled(format!("  {}", extra.join(" · ")), theme::dim()),
-                        ])
-                    })
-                    .collect(),
-            },
-            Tab::Jobs => d
-                .jobs
-                .iter()
-                .map(|j| {
-                    let (mark, style) = match j.status {
-                        JobStatus::Done => ("●".to_string(), theme::ok()),
-                        JobStatus::Failed => ("▲".to_string(), theme::error()),
-                        JobStatus::Running => (spinner().to_string(), theme::accent()),
-                        JobStatus::Queued => ("○".to_string(), theme::dim()),
-                    };
-                    Line::from(vec![
-                        Span::styled(format!("{mark} {:<11}", j.step), style),
-                        Span::styled(
-                            format!("{}  ×{}  ", local(j.updated_at), j.attempts),
-                            theme::dim(),
-                        ),
-                        Span::styled(j.error.clone().unwrap_or_default(), theme::error()),
-                    ])
-                })
-                .collect(),
-        };
-        // On the actions tab the cursor drives the scroll.
-        let scroll = if TABS[d.tab] == Tab::Actions {
-            (d.action as u16).saturating_sub(body.height.saturating_sub(2))
-        } else {
-            d.scroll
-        };
-        f.render_widget(
-            Paragraph::new(lines)
-                .wrap(Wrap { trim: false })
-                .scroll((scroll, 0)),
-            body,
-        );
-    }
-
-    fn draw_pull(&self, f: &mut Frame, area: Rect) {
-        let s = lock(&self.pull);
-        let [c] = Layout::horizontal([Constraint::Length(area.width.min(80))])
-            .flex(Flex::Center)
-            .areas(area);
-        let [text_area, gauge_area, result_area] = Layout::vertical([
-            Constraint::Length(3),
-            Constraint::Length(1),
-            Constraint::Min(1),
-        ])
-        .areas(c.inner(ratatui::layout::Margin::new(1, 1)));
-        let line = match &s.phase {
-            Phase::Idle => Line::raw(t!("tui.pull_ready").into_owned()),
-            Phase::Searching => Line::styled(
-                format!("{} {}", spinner(), t!("pull.searching")),
-                theme::accent(),
-            ),
-            Phase::Downloading(tr) => Line::styled(
-                format!(
-                    "{} {}",
-                    spinner(),
-                    t!(
-                        "tui.pull_downloading",
-                        label = tr.label,
-                        count = s.downloaded + 1
-                    )
-                ),
-                theme::accent(),
-            ),
-            Phase::Finished(_, failed) => {
-                let style = if *failed { theme::warn() } else { theme::ok() };
-                Line::styled(t!("tui.pull_finished").into_owned(), style)
-            }
-        };
-        f.render_widget(Paragraph::new(line).wrap(Wrap { trim: true }), text_area);
-        if let Phase::Downloading(tr) = &s.phase {
-            let ratio = if tr.total == 0 {
-                0.0
-            } else {
-                (tr.done as f64 / tr.total as f64).clamp(0.0, 1.0)
-            };
-            let label = format!(
-                "{:.1}/{:.1} MB  {:.0} kB/s  {}:{:02}",
-                mb(tr.done),
-                mb(tr.total),
-                tr.speed / 1000.0,
-                tr.eta / 60,
-                tr.eta % 60
-            );
-            f.render_widget(
-                Gauge::default()
-                    .gauge_style(theme::accent())
-                    .ratio(ratio)
-                    .label(label),
-                gauge_area,
-            );
-        }
-        if let Phase::Finished(lines, _) = &s.phase {
-            let lines: Vec<Line> = lines.iter().map(|l| Line::raw(l.clone())).collect();
-            f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), result_area);
-        }
     }
 }
 
-fn draw_picker(f: &mut Frame, area: Rect, sel: usize) {
-    let [v] = Layout::vertical([Constraint::Length(STEPS.len() as u16 + 2)])
-        .flex(Flex::Center)
-        .areas(area);
-    let [r] = Layout::horizontal([Constraint::Length(34)])
-        .flex(Flex::Center)
-        .areas(v);
-    let lines: Vec<Line> = STEPS
-        .iter()
-        .enumerate()
-        .map(|(i, s)| {
-            let style = if i == sel {
-                theme::selected()
-            } else {
-                Style::new()
-            };
-            Line::styled(format!(" {s} "), style)
-        })
-        .collect();
-    f.render_widget(Clear, r);
-    f.render_widget(
-        Paragraph::new(lines).block(
-            Block::bordered()
-                .border_type(BorderType::Rounded)
-                .border_style(theme::accent())
-                .title(t!("tui.rerun_title").into_owned()),
-        ),
-        r,
-    );
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Profile;
+    use liberarr_core::ai::Provider;
+    use liberarr_core::lang::Language;
+    use liberarr_core::recordings::{NewRecording, RecordingRepo, Source};
+    use liberarr_core::summaries::{Action, SummaryRepo};
+    use liberarr_core::transcription::{Segment, TranscriptRepo};
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    fn profile() -> Profile {
+        Profile {
+            provider: Provider::Compatible,
+            base_url: String::new(),
+            api_key: String::new(),
+            model: "m".into(),
+            routing_only: Vec::new(),
+        }
+    }
+
+    /// A draw that panics is a crash for the user: every pane, tab and overlay is drawn at a
+    /// wide, a medium, a narrow, the minimum and a too-small size. At 140×40 the list, the
+    /// summary, the pipeline and the pull progress are on screen together.
+    #[test]
+    fn dashboard_draws_at_every_size() {
+        let home = std::env::temp_dir().join(format!(
+            "liberarr-tui-{}-{}",
+            std::process::id(),
+            jiff::Timestamp::now().as_nanosecond()
+        ));
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let app = Arc::new(
+            App::open(Config {
+                home: home.clone(),
+                secret_key: "k".repeat(32),
+                api_key: String::new(),
+                admin_password: String::new(),
+                transcribe: profile(),
+                llm: profile(),
+                vocabulary: Vec::new(),
+                obsidian: home.join("notes"),
+                content_language: Language::En,
+                content_language_set: false,
+                cookie_secure: false,
+            })
+            .unwrap(),
+        );
+        let mut ui = Ui::new(Arc::clone(&app), rt.handle().clone());
+        // Two frames: the one that starts the effects, then one after they ended.
+        let draw = |ui: &mut Ui, w, h| {
+            let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+            for elapsed in [40, 1000] {
+                term.draw(|f| ui.draw(f, Duration::from_millis(elapsed)))
+                    .unwrap();
+            }
+            let buf = term.backend().buffer().clone();
+            buf.content().iter().map(|c| c.symbol()).collect::<String>()
+        };
+        // No recording yet.
+        ui.reload().unwrap();
+        draw(&mut ui, 140, 40);
+        draw(&mut ui, 60, 16);
+
+        let add = |title: &str, at: &str| {
+            rt.block_on(app.db.add(NewRecording {
+                title: Some(title.into()),
+                source: Source::File,
+                source_ref: title.into(),
+                audio_path: "a.ogg".into(),
+                duration_s: Some(754.0),
+                created_at: at.parse().unwrap(),
+            }))
+            .unwrap()
+        };
+        let done = add("Budget review", "2026-03-02T10:00:00Z");
+        rt.block_on(TranscriptRepo::save(
+            &app.db,
+            done,
+            &Transcript {
+                engine: "e".into(),
+                language: None,
+                text: "Bonjour, let's start.".into(),
+                segments: vec![Segment {
+                    start: 0.0,
+                    end: 2.0,
+                    text: "Bonjour, let's start.".into(),
+                }],
+                has_timestamps: true,
+            },
+        ))
+        .unwrap();
+        rt.block_on(SummaryRepo::save(
+            &app.db,
+            done,
+            &MeetingSummary {
+                title: "Budget review".into(),
+                summary_md: "# Decisions\n- **Ship** on Friday\n".repeat(30),
+                mindmap: "mindmap\n  root((Budget))\n    Costs".into(),
+                actions: vec![
+                    Action {
+                        action: "Send the figures to the whole team before the next review"
+                            .repeat(3),
+                        owner: Some("Lina".into()),
+                        due: None,
+                        start: Some(61.0),
+                        done: false,
+                    };
+                    12
+                ],
+            },
+        ))
+        .unwrap();
+        let failed = add("Failed one", "2026-03-01T10:00:00Z");
+        rt.block_on(app.db.enqueue(failed, "transcribe")).unwrap();
+        let job = rt.block_on(app.db.claim_next()).unwrap().unwrap();
+        rt.block_on(app.db.fail(&job, "provider: boom")).unwrap();
+        ui.reload().unwrap();
+        ui.toast(
+            "A long notice that wraps in its box. ".repeat(4),
+            theme::warn(),
+        );
+        *lock(&ui.pull) = PullState {
+            running: true,
+            phase: Phase::Downloading(Transfer {
+                label: "2026-03-02 11:00".into(),
+                done: 3_000_000,
+                total: 10_000_000,
+                speed: 210_000.0,
+                eta: 8,
+            }),
+            downloaded: 1,
+        };
+        ui.finished = Some(done);
+
+        let wide = draw(&mut ui, 140, 40);
+        for shown in ["Budget review", "Ship on Friday", "summarize", "30%"] {
+            assert!(wide.contains(shown), "{shown} is not on the dashboard");
+        }
+        for (w, h) in [(200, 60), (140, 40), (100, 30), (80, 24), (60, 16), (30, 8)] {
+            for focus in [Focus::List, Focus::Preview] {
+                for tab in 0..TABS.len() {
+                    (ui.focus, ui.tab, ui.action, ui.scroll) = (focus, tab, 11, u16::MAX);
+                    draw(&mut ui, w, h);
+                }
+            }
+            (ui.help, ui.picker, ui.filtering) = (true, Some(1), true);
+            draw(&mut ui, w, h);
+            (ui.help, ui.picker, ui.filtering) = (false, None, false);
+        }
+        // The failed recording, then a search without a match, then the end of a pull.
+        ui.move_selection(1);
+        ui.sync(false).unwrap();
+        draw(&mut ui, 100, 30);
+        ui.filter = "no such title".into();
+        ui.sync(false).unwrap();
+        lock(&ui.pull).phase = Phase::Finished(
+            vec![t!("pull.no_device_in_range").into_owned()],
+            true,
+            Instant::now(),
+        );
+        draw(&mut ui, 140, 40);
+        draw(&mut ui, 60, 16);
+        drop(ui);
+        drop(app);
+        let _ = std::fs::remove_dir_all(&home);
+    }
 }

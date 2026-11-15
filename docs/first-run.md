@@ -52,7 +52,14 @@ Wake the device and close the Plaud app on your phone first: the device talks to
 
 ## 4. Read the results: `liberarr tui` or `liberarr serve`
 
-**Terminal app** (`liberarr tui`): the list of recordings and their status; open one to see its summary, timestamped transcript, mind map, actions to tick and jobs. Keys are shown at the bottom of each screen (`p` pull, `r` rerun, `s` settings, `/` search, `q` quit). Without a configuration it starts with the setup. It follows `NO_COLOR` (no colors, no animation) and `LIBERARR_REDUCED_MOTION=1` (no animation).
+**Terminal app** (`liberarr tui`): one dashboard. Without a configuration it starts with the setup.
+
+- **Header**: how many recordings, how many are being processed or failed, the total audio time, the last pull, and whether a device is linked.
+- **Recordings** (left): the list with each status. `/` searches by title.
+- **Preview** (right): the selected recording, shown at once: its status, its pipeline steps, and five tabs (summary, timestamped transcript, mind map, actions to tick, jobs). `←` `→` or `1`–`5` change tab. `Enter` or `Tab` moves to this pane to scroll and to tick actions with `space`; `Esc` goes back to the list.
+- **Activity** (bottom): the device pull started with `p`, with its progress, and the recordings being processed. One line when nothing runs.
+
+`r` runs a step again, `s` opens the settings, `?` lists every key, `q` quits. Below 100 columns the list and the preview are shown one at a time (`Enter` opens a recording, `Esc` goes back); the smallest window is 60×16. It follows `NO_COLOR` (no colors, no animation) and `LIBERARR_REDUCED_MOTION=1` (no animation).
 
 **Web UI** (`liberarr serve`): open <http://127.0.0.1:8484> and log in as `admin` with the password from `init`. `--host` and `--port` change the address; see [Privacy](privacy.md#web-ui-on-the-network) before using `--host 0.0.0.0`. `serve` never talks to the device: run `pull` separately.
 
