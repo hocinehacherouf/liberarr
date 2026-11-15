@@ -13,6 +13,7 @@ rust_i18n::i18n!("locales", fallback = "en");
 
 use clap::{Arg, ArgAction, Command, CommandFactory, FromArgMatches, Parser, Subcommand};
 use rust_i18n::t;
+use std::io::Write;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -179,7 +180,9 @@ fn main() -> ExitCode {
     match run(cmd) {
         Ok(code) => code,
         Err(e) => {
-            eprintln!("{}", rust_i18n::t!("error.prefix", message = e));
+            // Not `eprintln!`: it panics when the terminal has hung up.
+            let message = rust_i18n::t!("error.prefix", message = e);
+            let _ = writeln!(std::io::stderr(), "{message}");
             ExitCode::FAILURE
         }
     }

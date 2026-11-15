@@ -1,6 +1,6 @@
 //! Drawing of the dashboard: the header tiles, the recordings and the preview (side by side,
 //! or one at a time on a narrow window), the activity pane, the key hints and the overlays.
-use super::{Focus, Fx, Phase, TABS, Tab, Ui, WIDE, lock};
+use super::{Areas, Focus, Fx, Phase, TABS, Tab, Ui, WIDE, lock};
 use crate::commands::pull::{Transfer, mb};
 use crate::tui::text::{markdown, mindmap};
 use crate::tui::{LOGO, MIN_HEIGHT, MIN_WIDTH, hints, motion, pane, spinner, sweep, theme};
@@ -206,6 +206,7 @@ fn transfer(tr: &Transfer, count: usize, max: usize) -> Line<'static> {
 impl Ui {
     pub(super) fn draw(&mut self, f: &mut Frame, elapsed: Duration) {
         let area = f.area();
+        self.areas = Areas::default();
         if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
             f.render_widget(
                 Paragraph::new(t!("tui.too_small").into_owned()).wrap(Wrap { trim: true }),
@@ -420,11 +421,11 @@ impl Ui {
     /// on screen.
     fn draw_list(&mut self, f: &mut Frame, area: Rect) -> Option<Rect> {
         let focused = self.focus == Focus::List;
-        let visible = self.visible();
-        let count = if visible.len() == self.items.len() {
-            visible.len().to_string()
+        let shown = self.visible().len();
+        let count = if shown == self.items.len() {
+            shown.to_string()
         } else {
-            format!("{}/{}", visible.len(), self.items.len())
+            format!("{shown}/{}", self.items.len())
         };
         let block = pane(
             Line::from(format!(" {} ({count}) ", t!("tui.recordings"))),
@@ -443,6 +444,8 @@ impl Ui {
             ]);
             f.render_widget(Paragraph::new(search), bar);
         }
+        (self.areas.list, self.areas.rows) = (area, rows);
+        let visible = self.visible();
         if visible.is_empty() {
             let none = Line::styled(format!(" {}", t!("tui.no_match")), theme::dim());
             f.render_widget(Paragraph::new(none), rows);
@@ -476,6 +479,7 @@ impl Ui {
     /// Returns the content area.
     fn draw_preview(&mut self, f: &mut Frame, area: Rect) -> Rect {
         let focused = self.focus == Focus::Preview;
+        self.areas.preview = area;
         let Some(d) = &self.detail else {
             f.render_widget(pane(Line::default(), focused), area);
             return area;
@@ -556,6 +560,16 @@ impl Ui {
             actions_title,
             t!("tui.tab_jobs").into_owned(),
         ];
+        // Each title takes its width and the two columns of padding after it.
+        let mut x = tabs.x;
+        self.areas.tabs = titles
+            .iter()
+            .map(|t| {
+                let w = width(t) as u16 + 2;
+                x += w;
+                Rect::new(x - w, tabs.y, w, 1).intersection(tabs)
+            })
+            .collect();
         f.render_widget(
             Tabs::new(titles)
                 .select(self.tab)
@@ -807,6 +821,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         "tui.help_pull",
         "tui.help_rerun",
         "tui.help_settings",
+        "tui.help_mouse",
         "tui.help_back",
         "tui.help_quit",
     ]
