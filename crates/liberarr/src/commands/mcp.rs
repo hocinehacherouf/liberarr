@@ -822,15 +822,15 @@ mod tests {
     async fn serves_both_protocol_eras() {
         let (_home, mut s, id) = server("eras", short()).await;
         // Legacy: initialize, the initialized notification (no reply), then plain requests.
-        let input = format!(
-            "{}\n{}\n{}\n{}\n",
+        let input = [
             r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}"#,
             r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
             r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
-            format!(
+            &format!(
                 r#"{{"jsonrpc":"2.0","id":"x","method":"tools/call","params":{{"name":"get_summary","arguments":{{"id":{id}}}}}}}"#
             ),
-        );
+        ]
+        .join("\n");
         let r = exchange(&mut s, input.as_bytes()).await;
         assert_eq!(r.len(), 3);
         assert_eq!(r[0]["result"]["protocolVersion"], "2025-06-18");
@@ -846,16 +846,16 @@ mod tests {
 
         // Modern: every request carries its version; no handshake.
         let (_home, mut s, id) = server("eras-modern", short()).await;
-        let input = format!(
-            "{}\n{}\n{}\n{}\n{}\n",
-            format!(
+        let input = [
+            &format!(
                 r#"{{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{{{MODERN_META}}}}}"#
             ),
-            call(2, "get_transcript", &format!(r#"{{"id":{id}}}"#)),
+            &call(2, "get_transcript", &format!(r#"{{"id":{id}}}"#)),
             r#"{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"1900-01-01","io.modelcontextprotocol/clientCapabilities":{}}}}"#,
             r#"{"jsonrpc":"2.0","id":4,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}"#,
             r#"{"jsonrpc":"2.0","id":5,"method":"tools/list"}"#,
-        );
+        ]
+        .join("\n");
         let r = exchange(&mut s, input.as_bytes()).await;
         assert_eq!(r[0]["result"]["supportedVersions"], json!(["2026-07-28"]));
         assert_eq!(r[0]["result"]["resultType"], "complete");
@@ -906,7 +906,6 @@ mod tests {
         ];
         let r = exchange(&mut s, lines.join("\n").as_bytes()).await;
         let code = |i: usize| r[i]["error"]["code"].as_i64();
-        let tool_error = |i: usize| r[i]["result"]["isError"] == true;
         assert_eq!(code(0), Some(-32700));
         assert_eq!(code(1), Some(-32600));
         assert_eq!((code(2), &r[2]["id"]), (Some(-32600), &Value::Null));
@@ -917,8 +916,8 @@ mod tests {
         assert_eq!(code(7), Some(-32602));
         assert_eq!(code(8), Some(-32602));
         assert_eq!((code(9), &r[9]["id"]), (Some(-32600), &Value::Null)); // too long
-        for i in 10..=20 {
-            assert!(tool_error(i), "line {i}: {}", r[i]);
+        for (i, reply) in r.iter().enumerate().take(21).skip(10) {
+            assert!(reply["result"]["isError"] == true, "line {i}: {reply}");
         }
         // Notifications, client responses and blank lines get no reply; the server still answers.
         assert_eq!(r.len(), 22);
