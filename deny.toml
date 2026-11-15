@@ -1,10 +1,3 @@
-[advisories]
-ignore = [
-    # `rsa` (used later for the device key exchange): timing side channel on private-key decryption.
-    # Liberarr is a local tool and never exposes a decryption oracle to a remote party.
-    { id = "RUSTSEC-2023-0071", reason = "local tool, no remote decryption oracle" },
-]
-
 [licenses]
 allow = [
     "MIT",

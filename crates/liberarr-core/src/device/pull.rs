@@ -7,7 +7,7 @@ use crate::audio::ogg::verify_ogg;
 use crate::jobs::JobQueue;
 use crate::recordings::{AudioStore, Ingest, RecordingRepo, Source};
 use crate::{Error, Result};
-use rsa::RsaPrivateKey;
+use rsa::PrivateKey;
 use sha2::{Digest, Sha256};
 use std::future::Future;
 use std::time::Duration;
@@ -165,7 +165,7 @@ where
     async fn fetch(
         &self,
         dev: &mut Co::Session,
-        key: &RsaPrivateKey,
+        key: &PrivateKey,
         part: &str,
         session: u32,
         size: u32,

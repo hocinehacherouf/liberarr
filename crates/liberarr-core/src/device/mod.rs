@@ -16,14 +16,14 @@ pub(crate) mod fakes;
 pub(crate) mod testkey {
     use rand_chacha::ChaCha8Rng;
     use rand_chacha::rand_core::SeedableRng;
-    use rsa::RsaPrivateKey;
+    use rsa::PrivateKey;
     use std::sync::OnceLock;
 
     /// One deterministic 2048-bit key per test binary: keygen is the slow part.
-    pub fn key() -> &'static RsaPrivateKey {
-        static KEY: OnceLock<RsaPrivateKey> = OnceLock::new();
+    pub fn key() -> &'static PrivateKey {
+        static KEY: OnceLock<PrivateKey> = OnceLock::new();
         KEY.get_or_init(|| {
-            RsaPrivateKey::new(&mut ChaCha8Rng::seed_from_u64(7), 2048).expect("keygen")
+            PrivateKey::new(&mut ChaCha8Rng::seed_from_u64(7), 2048).expect("keygen")
         })
     }
 

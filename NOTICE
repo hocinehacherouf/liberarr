@@ -12,9 +12,3 @@ handshake, command framing, file header and encryption layout) are documented
 in PLAUD_NOTE_PRO_PROTOCOL.md of roopen219/plaude-archiver (MIT licensed).
 Liberarr contains no code from that project; it implements the documented
 facts independently.
-
-Known advisories
-----------------
-RUSTSEC-2023-0071 (rsa crate, timing side channel on private-key decryption)
-is acknowledged in deny.toml. Liberarr is a local tool: the private key never
-faces a remote decryption oracle.

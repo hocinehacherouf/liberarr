@@ -2,7 +2,7 @@
 use crate::{Error, Result};
 use chacha20::ChaCha20;
 use chacha20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
-use rsa::{Pkcs1v15Encrypt, RsaPrivateKey};
+use rsa::{Pkcs1v15Encrypt, PrivateKey};
 
 const HEADER_MIN: usize = 512;
 
@@ -16,7 +16,7 @@ fn header_u32(data: &[u8], i: usize) -> u32 {
 }
 
 /// Decrypts a downloaded device file into Ogg Opus bytes. Refuses non-v1 headers.
-pub fn decrypt_plaud_file(data: &[u8], priv_key: &RsaPrivateKey) -> Result<Vec<u8>> {
+pub fn decrypt_plaud_file(data: &[u8], priv_key: &PrivateKey) -> Result<Vec<u8>> {
     if data.len() < HEADER_MIN || &data[..8] != b"PLAUD.AI" {
         return Err(err("not a PLAUD.AI file"));
     }
@@ -137,8 +137,13 @@ mod tests {
         // Counter at the end of the keystream must be an error, not a cipher panic.
         let wrap = [header(1, u32::MAX, 0), vec![0; 128]].concat();
         assert!(decrypt_plaud_file(&wrap, key()).is_err());
-        let mut bad = ok;
-        bad[300] ^= 0xFF; // corrupt wrapped key
-        assert!(decrypt_plaud_file(&bad, key()).is_err());
+        // A corrupt wrapped key: RSA implicit rejection (rsa 0.10) yields a wrong (or too short)
+        // content key, not a padding error; wrong-key audio is garbage the pull's Ogg check refuses.
+        let mut bad = ok.clone();
+        bad[300] ^= 0xFF;
+        assert_ne!(
+            decrypt_plaud_file(&bad, key()).ok(),
+            decrypt_plaud_file(&ok, key()).ok()
+        );
     }
 }

@@ -15,7 +15,7 @@ use liberarr_core::device::crypto::{SessionCipher, open_unlock_secret, private_k
 use liberarr_core::device::ports::{DeviceConnector, DeviceScanner, DeviceSession, UnlockMaterial};
 use liberarr_core::device::protocol::{self as proto, Advert, DataPacket};
 use liberarr_core::{Error, Result};
-use rsa::RsaPrivateKey;
+use rsa::PrivateKey;
 use std::collections::{BTreeMap, HashMap};
 use std::pin::Pin;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -410,7 +410,7 @@ impl Link {
     }
 
     /// Spec §6.2 unlock: serial signature, public key when asked, then the session secret.
-    async fn unlock(&mut self, m: &UnlockMaterial, key: &RsaPrivateKey) -> Result<()> {
+    async fn unlock(&mut self, m: &UnlockMaterial, key: &PrivateKey) -> Result<()> {
         let mut parts = Secret::default();
         let last = self
             .send_frames(proto::FRAME_SN_SIGNATURE, &m.signature, &mut parts)

@@ -2,7 +2,7 @@
 use crate::{Error, Result};
 use chacha20poly1305::ChaCha20Poly1305;
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
-use rsa::{Pkcs1v15Encrypt, RsaPrivateKey};
+use rsa::{Pkcs1v15Encrypt, PrivateKey};
 use std::collections::BTreeMap;
 
 fn err(msg: &str) -> Error {
@@ -10,11 +10,11 @@ fn err(msg: &str) -> Error {
 }
 
 /// The stored device private key, as Plaud returns it: PKCS#8 or PKCS#1 PEM.
-pub fn private_key_from_pem(pem: &str) -> Result<RsaPrivateKey> {
+pub fn private_key_from_pem(pem: &str) -> Result<PrivateKey> {
     use rsa::pkcs1::DecodeRsaPrivateKey;
     use rsa::pkcs8::DecodePrivateKey;
-    RsaPrivateKey::from_pkcs8_pem(pem)
-        .or_else(|_| RsaPrivateKey::from_pkcs1_pem(pem))
+    PrivateKey::from_pkcs8_pem(pem)
+        .or_else(|_| PrivateKey::from_pkcs1_pem(pem))
         .map_err(|_| err("the stored private key is not a valid PEM"))
 }
 
@@ -29,7 +29,7 @@ pub struct UnlockSecret {
 /// `key[32] ‖ nonce[12] ‖ aad[12] ‖ AEAD(b"PLAUD.AI")`, and verify the trailing check.
 pub fn open_unlock_secret(
     parts: BTreeMap<u8, Vec<u8>>,
-    priv_key: &RsaPrivateKey,
+    priv_key: &PrivateKey,
 ) -> Result<UnlockSecret> {
     let blob: Vec<u8> = parts.into_values().flatten().collect();
     let plain = priv_key
