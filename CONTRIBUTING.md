@@ -1,0 +1,32 @@
+# Contributing to Liberarr
+
+Thanks for your interest. Liberarr is maintained by one person in their spare time, so please keep changes small and focused.
+
+## Before you start
+
+- **Bugs and ideas:** open an issue first, with the templates. For a larger change, wait for a reply before writing code.
+- **Security issues:** never in a public issue. See [SECURITY.md](SECURITY.md).
+- **Privacy:** never attach real recordings, transcripts, `.env` files, keys, tokens or device serials. Use synthetic data.
+
+## Development
+
+Set up your machine with [docs/development.md](docs/development.md). The architecture, code organisation and project rules are in [AGENTS.md](AGENTS.md); they apply to human contributors too.
+
+Before opening a pull request, run what the CI runs:
+
+```sh
+npm --prefix web ci && npm --prefix web run build && npm --prefix web run lint   # first: the binary embeds web/dist
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+```
+
+## Pull requests
+
+- One topic per pull request. Code, comments, commit messages and docs are in English.
+- User-facing text goes through the translation keys, in English and French.
+- Add a test only for critical behaviour (data loss, security, parsing untrusted input, the core pipeline).
+- New dependencies: explain why in the pull request; versions are pinned exactly.
+- Pull requests are squash-merged: the title and description become the commit message, so write them carefully.
+
+By contributing, you agree that your contribution is licensed under the [MIT License](LICENSE) and you follow the [Code of Conduct](CODE_OF_CONDUCT.md).

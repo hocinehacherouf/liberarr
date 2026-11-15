@@ -1,5 +1,7 @@
 # Liberarr
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/hocinehacherouf/liberarr/badge)](https://scorecard.dev/viewer/?uri=github.com/hocinehacherouf/liberarr)
+
 A single CLI that frees your Plaud recordings from the vendor. Audio comes straight off the device over Bluetooth (or from local files); Liberarr produces a transcript, a summary (English or French), a mind map and an action table with the AI provider of your choice, exports notes to Obsidian, and serves a local web UI. One binary, nothing else to install.
 
 Liberarr is an independent project, **not affiliated with, endorsed by or sponsored by Plaud**. "Plaud" is used only to describe the hardware it works with.

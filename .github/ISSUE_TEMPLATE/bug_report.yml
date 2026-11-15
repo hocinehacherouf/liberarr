@@ -1,0 +1,40 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Privacy:** never paste real recordings, transcripts, `.env` content, keys, tokens or device serials. Replace them with placeholders.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `liberarr --version`.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS (Apple silicon)
+        - macOS (Intel)
+        - Linux (x86-64)
+        - Linux (ARM64)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The command you ran, what you expected, and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error output
+      description: Remove any secret or personal content first.
+      render: text
