@@ -104,6 +104,64 @@ fn granule(page: &[u8]) -> i64 {
     i64::from_le_bytes(page[6..14].try_into().unwrap_or_default())
 }
 
+fn page_serial(page: &[u8]) -> u32 {
+    u32::from_le_bytes([page[14], page[15], page[16], page[17]])
+}
+
+fn page_body(page: &[u8]) -> &[u8] {
+    let start = 27 + page[26] as usize;
+    &page[start..]
+}
+
+/// Returns the duration of a complete Ogg Opus stream without decoding its audio packets.
+///
+/// Ogg granule positions count 48 kHz samples. Opus' pre-skip samples are not part of the
+/// recording's playable duration. Invalid, incomplete, or non-Opus streams have no duration.
+pub fn opus_duration_seconds(data: &[u8]) -> Option<f64> {
+    verify_ogg(data).ok()?;
+    let all = pages(data);
+    let (head_index, serial) = all.iter().enumerate().find_map(|(index, page)| {
+        (page[5] & 0x02 != 0
+            && u32::from_le_bytes([page[18], page[19], page[20], page[21]]) == 0
+            && page_body(page).starts_with(b"OpusHead"))
+        .then(|| (index, page_serial(page)))
+    })?;
+
+    let head = page_body(all[head_index]);
+    if head.len() < 12 {
+        return None;
+    }
+    let pre_skip = i64::from(u16::from_le_bytes([head[10], head[11]]));
+
+    let tags = all
+        .iter()
+        .skip(head_index + 1)
+        .find(|page| page_serial(page) == serial)?;
+    if !page_body(tags).starts_with(b"OpusTags") {
+        return None;
+    }
+
+    let (last_index, last) = all
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, page)| page_serial(page) == serial)?;
+    if last[5] & 0x04 == 0 {
+        return None;
+    }
+    if all[..last_index]
+        .iter()
+        .any(|page| page_serial(page) == serial && page[5] & 0x04 != 0)
+    {
+        return None;
+    }
+    let samples = granule(last).checked_sub(pre_skip)?;
+    if samples < 0 {
+        return None;
+    }
+    Some(samples as f64 / 48_000.0)
+}
+
 /// `OpusHead` + `OpusTags` pages, then `pages` renumbered from 2 with the last one marked end of
 /// stream, their granule positions moved back by `shift` so the part plays from 0 like a file of its
 /// own: a provider then times its segments from the part start, whatever it reads.
@@ -220,8 +278,12 @@ pub(crate) mod tests {
     }
 
     fn page_at(seq: u32, granule: i64, body: &[u8]) -> Vec<u8> {
+        page_at_with_flags(seq, granule, body, if seq == 0 { 2 } else { 0 })
+    }
+
+    fn page_at_with_flags(seq: u32, granule: i64, body: &[u8], flags: u8) -> Vec<u8> {
         let mut p = b"OggS".to_vec();
-        p.extend_from_slice(&[0, if seq == 0 { 2 } else { 0 }]);
+        p.extend_from_slice(&[0, flags]);
         p.extend_from_slice(&granule.to_le_bytes());
         p.extend_from_slice(&1234u32.to_le_bytes()); // stream serial
         p.extend_from_slice(&seq.to_le_bytes());
@@ -275,13 +337,36 @@ pub(crate) mod tests {
         head.extend_from_slice(&[0; 7]);
         let mut out = [page(0, &head), page(1, b"OpusTags")].concat();
         for n in 1..=6 {
-            out.extend(page_at(
+            out.extend(page_at_with_flags(
                 1 + n,
                 PRE_SKIP + n as i64 * 48_000,
                 &[n as u8; 100],
+                if n == 6 { 0x04 } else { 0 },
             ));
         }
         out
+    }
+
+    #[test]
+    fn opus_duration_uses_final_granule_minus_pre_skip() {
+        assert_eq!(opus_duration_seconds(&opus_stream()), Some(6.0));
+    }
+
+    #[test]
+    fn opus_duration_rejects_a_damaged_stream() {
+        let mut data = opus_stream();
+        data[22] ^= 1;
+        assert_eq!(opus_duration_seconds(&data), None);
+
+        let mut data = opus_stream();
+        let all = pages(&data);
+        let early_offset: usize = all.iter().take(2).map(|page| page.len()).sum();
+        let early_len = all[2].len();
+        data[early_offset + 5] |= 0x04;
+        data[early_offset + 22..early_offset + 26].fill(0);
+        let checksum = crc(&data[early_offset..early_offset + early_len]);
+        data[early_offset + 22..early_offset + 26].copy_from_slice(&checksum.to_le_bytes());
+        assert_eq!(opus_duration_seconds(&data), None);
     }
 
     #[test]
@@ -353,6 +438,7 @@ pub(crate) mod tests {
             .flat_map(|(a, b)| [a.to_vec(), b.clone()].concat())
             .collect();
         assert_eq!(verify_ogg(&mixed), Ok(()));
+        assert_eq!(opus_duration_seconds(&mixed), Some(6.0));
 
         let headers = page(0, &[0; 19]).len() + page(1, b"OpusTags").len();
         let parts = split_ogg(&mixed, headers + 2 * page(2, &[0; 100]).len()).unwrap();
