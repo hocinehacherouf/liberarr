@@ -1,14 +1,40 @@
-# Liberarr
+<div align="center">
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+  <img src="docs/assets/logo-light.svg" alt="Liberarr" width="280">
+</picture>
+
+**Free your Plaud recordings: transcripts, summaries and notes with the AI provider you choose.**
+
+[![CI](https://github.com/hocinehacherouf/liberarr/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/hocinehacherouf/liberarr/actions/workflows/rust.yml)
+[![License: MIT](https://img.shields.io/github/license/hocinehacherouf/liberarr)](LICENSE)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/hocinehacherouf/liberarr/badge)](https://scorecard.dev/viewer/?uri=github.com/hocinehacherouf/liberarr)
 
-A single CLI that frees your Plaud recordings from the vendor. Audio comes straight off the device over Bluetooth (or from local files); Liberarr produces a transcript, a summary (English or French), a mind map and an action table with the AI provider of your choice, exports notes to Obsidian, and serves a local web UI. One binary, nothing else to install.
+</div>
 
 Liberarr is an independent project, **not affiliated with, endorsed by or sponsored by Plaud**. "Plaud" is used only to describe the hardware it works with.
 
+## Why Liberarr
+
+- **Your recordings stay yours.** Audio, transcripts and summaries live in one folder on your machine. No Liberarr server, no telemetry. Only the AI providers you configure receive audio and transcripts ([privacy](docs/privacy.md)).
+- **Any AI provider.** Mistral, OpenAI, Anthropic, OpenRouter, or any OpenAI-compatible endpoint such as a LiteLLM gateway. One provider for transcription, another for summaries if you like.
+- **One binary.** Nothing else to install. macOS and Linux.
+- **Two ways to read your results:** a full-screen terminal app and a local web UI.
+
+## What you get
+
+- **Device pull over Bluetooth:** `liberarr pull` copies new recordings straight off the device. Local audio files work too (`liberarr process`).
+- **Transcript**, timestamped with most models, French and English mixed in the same recording.
+- **Summary**, **mind map** and **action table** for each recording.
+- **Obsidian export:** each recording becomes a Markdown note in the folder of your choice.
+- **Terminal app** (`liberarr tui`): browse recordings, read summaries, tick actions, rerun a step.
+- **Local web UI** (`liberarr serve`): the same, in your browser, behind a login.
+- **English and French**, for the interface and for the summaries.
+
 ## Install
 
-Download the archive for your platform from the [releases page](../../releases), check it and put `liberarr` in your `PATH`: see [docs/install.md](docs/install.md). macOS (Apple silicon, Intel) and Linux (x86-64, ARM64).
+Download the archive for your platform from the [releases page](https://github.com/hocinehacherouf/liberarr/releases), check it and put `liberarr` in your `PATH`: see [docs/install.md](docs/install.md). macOS (Apple silicon, Intel) and Linux (x86-64, ARM64).
 
 ## Quick start
 
@@ -34,17 +60,13 @@ liberarr serve   # or the web UI on http://127.0.0.1:8484
 - [Troubleshooting](docs/troubleshooting.md)
 - [FAQ](docs/faq.md), including how to keep the Plaud app alongside
 
-## Development
+## Contributing
 
-Requirements: Rust (version pinned in `rust-toolchain.toml`) and Node (build-time only, for the web UI). On Linux also `libdbus-1-dev` and `pkg-config`.
+Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), then build from source with [docs/development.md](docs/development.md) (web UI first, then `cargo build`). The architecture and project rules are in [AGENTS.md](AGENTS.md).
 
-```sh
-npm --prefix web ci && npm --prefix web run build   # builds web/dist, embedded into the binary
-cargo build --release
-./target/release/liberarr --version
-```
-
-To get both versions in one command with [mise](https://mise.jdx.dev), see [Development setup](docs/development.md). Contributors can also use `cargo install --path crates/liberarr --locked` after the web build. Rules for contributors and AI agents: see [AGENTS.md](AGENTS.md).
+- Pick a [good first issue](https://github.com/hocinehacherouf/liberarr/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) or a [help wanted](https://github.com/hocinehacherouf/liberarr/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) issue.
+- Roadmap: [agent integration](https://github.com/hocinehacherouf/liberarr/issues/11), [install channels](https://github.com/hocinehacherouf/liberarr/issues/12), [speaker recognition](https://github.com/hocinehacherouf/liberarr/issues/13), [backups](https://github.com/hocinehacherouf/liberarr/issues/14).
+- Found a security issue? Report it privately: see [SECURITY.md](SECURITY.md).
 
 ## License
 
