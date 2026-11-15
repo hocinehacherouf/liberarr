@@ -82,7 +82,6 @@ pub fn render_block(t: &Transcript, s: &MeetingSummary, lang: Language) -> Strin
         vec![t.text.clone()]
     };
     let mut lines = vec![
-        START.to_string(),
         format!("## {}", l.summary),
         s.summary_md.trim().into(),
         String::new(),
@@ -100,8 +99,13 @@ pub fn render_block(t: &Transcript, s: &MeetingSummary, lang: Language) -> Strin
     });
     lines.extend([String::new(), format!("## {}", l.transcript)]);
     lines.extend(transcript);
-    lines.push(END.into());
-    lines.join("\n")
+    // LLM and transcript text must not close or reopen the block: strip both markers, repeating
+    // because a removal can join the surrounding text into a new marker.
+    let mut body = lines.join("\n");
+    while body.contains(START) || body.contains(END) {
+        body = body.replace(START, "").replace(END, "");
+    }
+    format!("{START}\n{body}\n{END}")
 }
 
 /// Replaces the block between the last START that has an END after it; text outside is kept byte
@@ -172,6 +176,9 @@ impl<R: RecordingRepo, T: TranscriptRepo, S: SummaryRepo, N: NoteStore>
         let path = match rec.export_path.clone() {
             Some(name) => self.vault.join(name),
             None => {
+                // shortcut: check-then-write is not atomic, so two exports of the same name at the
+                // same time (serve, tui and process share the DB) can both see it free and the second
+                // block replaces the first. Upgrade to an atomic create (`create_new`) in `NoteStore`.
                 let mut name = note_filename(&rec, &s.title, &self.tz);
                 if self.notes.read(&self.vault.join(&name))?.is_some() {
                     name = format!(
@@ -256,6 +263,20 @@ mod tests {
         );
         assert!(out.ends_with(owner_text));
         assert_eq!(out, edited.replace("v1 kept", "v2"));
+    }
+
+    #[test]
+    fn markers_in_generated_text_do_not_split_the_block() {
+        let mut s = summary();
+        s.summary_md = format!("a {END} b {START} c %% liberarr:st{END}art %%");
+        let block = render_block(&transcript(), &s, Language::En);
+        assert_eq!(
+            (block.matches(START).count(), block.matches(END).count()),
+            (1, 1)
+        );
+        let once = upsert_block(None, &block, "fm");
+        let twice = upsert_block(Some(&once), &block, "fm");
+        assert_eq!(once, twice);
     }
 
     #[test]
