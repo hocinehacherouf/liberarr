@@ -89,15 +89,10 @@ mod theme {
     pub fn error() -> Style {
         fg(Color::Red)
     }
+    /// The accent reversed, not black on cyan: named black is a mid gray on light themes. Reversed,
+    /// the text takes the terminal's background color, readable on dark and light.
     pub fn selected() -> Style {
-        if colors() {
-            Style::new()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::new().add_modifier(Modifier::REVERSED)
-        }
+        fg(Color::Cyan).add_modifier(Modifier::REVERSED | Modifier::BOLD)
     }
     pub fn bold() -> Style {
         Style::new().add_modifier(Modifier::BOLD)
