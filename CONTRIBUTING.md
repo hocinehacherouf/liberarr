@@ -30,7 +30,7 @@ cargo run -p liberarr --example demo_home -- /tmp/liberarr-demo   # keep it runn
 LIBERARR_HOME=/tmp/liberarr-demo cargo run -p liberarr -- tui     # in another terminal
 ```
 
-The first command stays open on purpose: it stands in for a running worker, so the recording shown as processing stays in that state. Once it is stopped, the app takes that job and it fails, because the demo providers point at a closed local port. Each demo recording has the same 30-second file of silence, made by the example (an Ogg Opus file that passes `verify_ogg`), so the player of the web UI works. Its length is not the recording's.
+The first command stays open on purpose: it stands in for a running worker, so the recording shown as processing stays in that state. Once it is stopped, the app takes that job and it fails, because the demo providers point at a closed local port. Each demo recording has a file of silence as long as the recording, made by the example (an Ogg Opus file that passes `verify_ogg`, about 200 bytes per second), so the player of the web UI works and a click on the transcript seeks.
 
 The README demo is recorded from this data with [VHS](https://github.com/charmbracelet/vhs): `vhs docs/assets/demo.tape` (the build commands are at the top of the tape).
 
