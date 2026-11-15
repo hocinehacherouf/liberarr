@@ -23,3 +23,5 @@ npm --prefix web ci && npm --prefix web run build   # builds web/dist, embedded 
 cargo build --release
 ./target/release/liberarr --version
 ```
+
+Contributors can also install the binary with `cargo install --path crates/liberarr --locked` after the web build.

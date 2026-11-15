@@ -29,7 +29,7 @@ Liberarr is an independent project, **not affiliated with, endorsed by or sponso
 - **Summary**, **mind map** and **action table** for each recording.
 - **Obsidian export:** each recording becomes a Markdown note in the folder of your choice.
 - **Terminal app** (`liberarr tui`): browse recordings, read summaries, tick actions, rerun a step.
-- **Local web UI** (`liberarr serve`): the same, in your browser, behind a login.
+- **Local web UI** (`liberarr serve`): read recordings, play the audio next to the transcript, rerun a failed step, behind a login.
 - **English and French**, for the interface and for the summaries.
 
 ## Install
