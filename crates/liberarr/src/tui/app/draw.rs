@@ -298,7 +298,7 @@ impl Ui {
             start.push((Fx::Preview, sweep(160, area)));
         }
         if let Some(row) = finished {
-            let flash = fx::paint(Color::Black, Color::Green, 300u32).with_area(row);
+            let flash = fx::paint_fg(Color::Green, 300u32).with_area(row);
             start.push((Fx::Finished, flash));
         }
         (self.reveal, self.swap) = (false, false);

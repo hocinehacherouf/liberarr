@@ -30,11 +30,30 @@ struct Screen(DefaultTerminal);
 
 impl Screen {
     fn open() -> std::io::Result<Screen> {
+        exit_on_hangup()?;
         let term = ratatui::init();
         // A pasted API key arrives as one event instead of one key per character.
         execute!(std::io::stdout(), EnableBracketedPaste)?;
         Ok(Screen(term))
     }
+}
+
+/// Ends the process when the terminal hangs up, as the hang-up signal would. Without that
+/// signal (a detached `screen`, `nohup`), crossterm reads end-of-input in a loop it never
+/// leaves, at 100 % CPU, so the check runs on its own thread: an empty write puts nothing on
+/// screen and fails once the terminal is gone.
+fn exit_on_hangup() -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::fd::AsFd;
+    let mut tty = std::fs::File::from(std::io::stdout().as_fd().try_clone_to_owned()?);
+    std::thread::spawn(move || {
+        while tty.write(&[]).is_ok() {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+        ratatui::restore();
+        std::process::exit(1);
+    });
+    Ok(())
 }
 
 impl Drop for Screen {
@@ -113,7 +132,7 @@ mod theme {
         }
         let mix = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t) as u8;
         Style::new()
-            .fg(Color::Rgb(mix(0, 175), mix(190, 110), mix(215, 255)))
+            .fg(Color::Rgb(mix(0, 140), mix(150, 90), mix(190, 230)))
             .add_modifier(Modifier::BOLD)
     }
     /// `text` in the brand gradient, one color step per character.
