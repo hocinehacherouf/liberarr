@@ -32,6 +32,13 @@
       "failed": "Échec",
       "done": "Prêt"
     },
+    "pipeline": "Étapes du traitement",
+    "jobStatus": {
+      "queued": "en attente",
+      "running": "en cours",
+      "failed": "échec",
+      "done": "terminée"
+    },
     "steps": {
       "transcribe": "transcription",
       "summarize": "résumé",

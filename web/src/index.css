@@ -1,13 +1,68 @@
 @import "tailwindcss";
 
+/* Theme tokens: the values switch with the system setting, the utility names stay (bg-surface, text-muted…). */
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-err: var(--err);
+}
+
 :root {
-  color-scheme: dark;
+  color-scheme: light dark;
+  /* The terminal header's gradient ends, chosen to read on light and dark. */
+  --brand-from: rgb(0 150 190);
+  --brand-to: rgb(140 90 230);
+  --canvas: #f6f8fa;
+  --surface: #ffffff;
+  --line: #d8dee4;
+  --fg: #1f2328;
+  --muted: #57606a;
+  --accent: #006d89;
+  --ok: #116329;
+  --warn: #7d4e00;
+  --err: #cf222e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #0d1117;
+    --surface: #151b23;
+    --line: #2a313c;
+    --fg: #e6edf3;
+    --muted: #9198a1;
+    --accent: #3fc1e0;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --err: #f85149;
+  }
+}
+
+@utility bg-brand {
+  background-image: linear-gradient(90deg, var(--brand-from), var(--brand-to));
+}
+
+/* Darker ends of the same gradient: white text on it stays above 4.5:1. */
+@utility bg-brand-strong {
+  background-image: linear-gradient(90deg, #006d89, #6a42c2);
+}
+
+@utility text-brand {
+  background-image: linear-gradient(90deg, var(--brand-from), var(--brand-to));
+  background-clip: text;
+  color: transparent;
 }
 
 body {
-  @apply bg-zinc-950 text-zinc-100 antialiased;
+  @apply bg-canvas text-fg antialiased;
+  accent-color: var(--accent);
 }
 
 :focus-visible {
-  @apply outline-2 outline-offset-2 outline-emerald-400;
+  @apply outline-2 outline-offset-2 outline-accent;
 }

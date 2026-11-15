@@ -32,6 +32,13 @@
       "failed": "Failed",
       "done": "Ready"
     },
+    "pipeline": "Pipeline steps",
+    "jobStatus": {
+      "queued": "queued",
+      "running": "running",
+      "failed": "failed",
+      "done": "done"
+    },
     "steps": {
       "transcribe": "transcription",
       "summarize": "summary",
