@@ -9,5 +9,6 @@ Short pages for someone starting alone. Read them in order the first time.
 5. [Privacy](privacy.md): what leaves your machine, and where it goes.
 6. [Troubleshooting](troubleshooting.md): the common errors and what to do.
 7. [FAQ](faq.md).
+8. [Releases and support](releases.md): version numbers, your data across updates, what support to expect.
 
 Every command also documents itself: `liberarr --help` and `liberarr <command> --help`, in English or French (see [Configuration](configuration.md#language)).
