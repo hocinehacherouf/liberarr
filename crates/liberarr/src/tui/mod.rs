@@ -113,7 +113,7 @@ mod theme {
         }
         let mix = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t) as u8;
         Style::new()
-            .fg(Color::Rgb(mix(0, 175), mix(190, 110), mix(215, 255)))
+            .fg(Color::Rgb(mix(0, 140), mix(150, 90), mix(190, 230)))
             .add_modifier(Modifier::BOLD)
     }
     /// `text` in the brand gradient, one color step per character.
