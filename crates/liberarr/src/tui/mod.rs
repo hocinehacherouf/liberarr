@@ -9,12 +9,14 @@ use crate::commands::{self, Outcome};
 use crate::config;
 use prompter::TuiPrompter;
 use ratatui::DefaultTerminal;
-use ratatui::crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
+use ratatui::crossterm::cursor::Show;
+use ratatui::crossterm::event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste};
 use ratatui::crossterm::execute;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType};
+use std::mem::ManuallyDrop;
 use std::process::ExitCode;
 use std::sync::OnceLock;
 use tachyonfx::pattern::SweepPattern;
@@ -24,23 +26,67 @@ use tachyonfx::{Effect, Interpolation, fx};
 const MIN_WIDTH: u16 = 60;
 const MIN_HEIGHT: u16 = 16;
 
-/// The terminal in full-screen raw mode, restored on drop (normal exit or error). `ratatui::init`
-/// also installs a panic hook that restores it.
-struct Screen(DefaultTerminal);
+/// The terminal in full-screen raw mode, restored on drop (normal exit or error) and on panic.
+/// The terminal itself is never dropped: its drop shows the cursor and reports a failure with
+/// `eprintln!`, which panics once the terminal has hung up. `restore` shows the cursor instead.
+struct Screen(ManuallyDrop<DefaultTerminal>);
 
 impl Screen {
     fn open() -> std::io::Result<Screen> {
+        exit_on_hangup()?;
+        // This hook replaces the one `ratatui::init` installs: that one knows nothing of the
+        // paste and mouse modes, and its report panics again when the terminal is gone.
+        let hook = std::panic::take_hook();
         let term = ratatui::init();
+        std::panic::set_hook(Box::new(move |info| {
+            restore();
+            hook(info);
+        }));
         // A pasted API key arrives as one event instead of one key per character.
         execute!(std::io::stdout(), EnableBracketedPaste)?;
-        Ok(Screen(term))
+        Ok(Screen(ManuallyDrop::new(term)))
     }
+}
+
+/// The terminal as it was before `Screen::open`. Mouse capture is only on in the app; turning it
+/// off when it is already off writes a few bytes the terminal ignores. A terminal left in mouse
+/// mode prints escape codes on every mouse move.
+fn restore() {
+    let _ = execute!(
+        std::io::stdout(),
+        Show,
+        DisableMouseCapture,
+        DisableBracketedPaste
+    );
+    // Not `ratatui::restore`: its `eprintln!` panics when the terminal is gone.
+    if let Err(e) = ratatui::try_restore() {
+        use std::io::Write;
+        let _ = writeln!(std::io::stderr(), "Failed to restore terminal: {e}");
+    }
+}
+
+/// Ends the process when the terminal hangs up, as the hang-up signal would. Without that
+/// signal (a detached `screen`, `nohup`), crossterm reads end-of-input in a loop it never
+/// leaves, at 100 % CPU, so the check runs on its own thread: an empty write puts nothing on
+/// screen and fails once the terminal is gone.
+fn exit_on_hangup() -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::fd::AsFd;
+    let mut tty = std::fs::File::from(std::io::stdout().as_fd().try_clone_to_owned()?);
+    std::thread::spawn(move || {
+        while tty.write(&[]).is_ok() {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+        // Nothing is left to restore. Trying would fail and report on the dead stderr, which
+        // panics inside the panic hook and aborts.
+        std::process::exit(1);
+    });
+    Ok(())
 }
 
 impl Drop for Screen {
     fn drop(&mut self) {
-        let _ = execute!(std::io::stdout(), DisableBracketedPaste);
-        ratatui::restore();
+        restore();
     }
 }
 
@@ -113,7 +159,7 @@ mod theme {
         }
         let mix = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t) as u8;
         Style::new()
-            .fg(Color::Rgb(mix(0, 175), mix(190, 110), mix(215, 255)))
+            .fg(Color::Rgb(mix(0, 140), mix(150, 90), mix(190, 230)))
             .add_modifier(Modifier::BOLD)
     }
     /// `text` in the brand gradient, one color step per character.

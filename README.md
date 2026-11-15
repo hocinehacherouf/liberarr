@@ -46,9 +46,23 @@ Liberarr is an independent project, **not affiliated with, endorsed by or sponso
 - **Local web UI** (`liberarr serve`): read recordings, play the audio next to the transcript, rerun a failed step, behind a login.
 - **English and French**, for the interface and for the summaries.
 
+<div align="center">
+
+<img src="docs/assets/web-recording.png" alt="The Liberarr web UI on a recording page: the audio player, then the summary and the mind map of the recording" width="880">
+
+<sub>The web UI (`liberarr serve`), on fictional recordings.</sub>
+
+</div>
+
 ## Install
 
-No release is published yet: for now, build from source with [docs/development.md](docs/development.md). Once a release is out, download the archive for your platform from the [releases page](https://github.com/hocinehacherouf/liberarr/releases), check it and put `liberarr` in your `PATH`: see [docs/install.md](docs/install.md). macOS (Apple silicon, Intel) and Linux (x86-64, ARM64).
+No release is published yet: for now, build from source with [docs/development.md](docs/development.md). Once a release is out:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/hocinehacherouf/liberarr/releases/latest/download/install.sh | sh
+```
+
+Or with Homebrew (from the first release): `brew install hocinehacherouf/tap/liberarr`. Manual steps and checks: [docs/install.md](docs/install.md). macOS (Apple silicon, Intel) and Linux (x86-64, ARM64).
 
 ## Quick start
 
@@ -71,15 +85,18 @@ liberarr serve   # or the web UI on http://127.0.0.1:8484
 - [Configuration](docs/configuration.md): `LIBERARR_HOME`, the `.env` file, languages
 - [AI providers and costs](docs/ai-providers.md)
 - [Privacy](docs/privacy.md): what leaves your machine
+- [Backup and restore](docs/backup.md): `liberarr backup`, encrypted copies off the machine
+- [AI agents (MCP)](docs/agents.md): let your agent read your recordings
 - [Troubleshooting](docs/troubleshooting.md)
 - [FAQ](docs/faq.md), including how to keep the Plaud app alongside
+- [Releases and support](docs/releases.md): version numbers, your data across updates
 
 ## Contributing
 
 Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), then build from source with [docs/development.md](docs/development.md) (web UI first, then `cargo build`). The architecture and project rules are in [AGENTS.md](AGENTS.md).
 
 - Pick a [good first issue](https://github.com/hocinehacherouf/liberarr/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) or a [help wanted](https://github.com/hocinehacherouf/liberarr/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) issue.
-- Roadmap: [agent integration](https://github.com/hocinehacherouf/liberarr/issues/11), [install channels](https://github.com/hocinehacherouf/liberarr/issues/12), [speaker recognition](https://github.com/hocinehacherouf/liberarr/issues/13), [backups](https://github.com/hocinehacherouf/liberarr/issues/14).
+- Roadmap: [agent integration](https://github.com/hocinehacherouf/liberarr/issues/11), [install channels](https://github.com/hocinehacherouf/liberarr/issues/12), [speaker recognition](https://github.com/hocinehacherouf/liberarr/issues/13).
 - Found a security issue? Report it privately: see [SECURITY.md](SECURITY.md).
 
 ## License

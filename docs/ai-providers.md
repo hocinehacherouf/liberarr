@@ -20,6 +20,10 @@ Liberarr uses two AI steps, each with its own provider (its own `LIBERARR_TRANSC
 
 Claude cannot transcribe audio: with `anthropic` or `claude` for the summary, keep another provider for transcription.
 
+### Tested providers
+
+The maintainer runs `mistral` and `claude` against the real services. `openai` and `anthropic` are tested against the providers' documentation and a mock server, not yet against the real services ([issue #16](https://github.com/hocinehacherouf/liberarr/issues/16)). `openrouter` and `openai-compatible` depend on the endpoint behind them. If a provider fails for you, please [open an issue](https://github.com/hocinehacherouf/liberarr/issues) with the error text: it never contains your key.
+
 Transcription forces no language: a recording mixing French and English works. Pick a multilingual model.
 
 ## OpenRouter

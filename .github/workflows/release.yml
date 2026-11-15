@@ -37,6 +37,7 @@ jobs:
     steps:
       - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
+          # Audit: no tag run yet shows the endpoints of the attestation step; macOS supports audit only.
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -84,8 +85,137 @@ jobs:
             liberarr-${{ matrix.target }}.tar.gz.sha256
           if-no-files-found: error
 
-  release:
+  # The image of `liberarr serve`, per architecture on a native runner, around the archive's binary.
+  # Every run starts it on an empty volume and logs in; a tag also pushes it.
+  container:
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            arch: amd64
+            os: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            arch: arm64
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          # Audit: no run yet shows the Docker Hub pull endpoints, and the ghcr.io push runs only on a tag.
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: liberarr-${{ matrix.target }}
+          path: dist
+      - name: Build the image
+        run: |
+          mkdir context
+          tar -xzf "dist/liberarr-${{ matrix.target }}.tar.gz" -C context liberarr
+          docker build -f packaging/Dockerfile -t liberarr:test context
+      - name: Start it on an empty volume and log in
+        run: |
+          # Fictional providers: nothing is called.
+          out="$(docker run --rm -v liberarr:/data \
+            -e LIBERARR_TRANSCRIBE_PROVIDER=openai-compatible -e LIBERARR_TRANSCRIBE_BASE_URL=http://gateway.example/v1 \
+            -e LIBERARR_TRANSCRIBE_API_KEY=fictional -e LIBERARR_TRANSCRIBE_MODEL=fictional \
+            -e LIBERARR_LLM_PROVIDER=openai-compatible -e LIBERARR_LLM_BASE_URL=http://gateway.example/v1 \
+            -e LIBERARR_LLM_API_KEY=fictional -e LIBERARR_LLM_MODEL=fictional \
+            liberarr:test init --non-interactive)"
+          password="$(printf '%s\n' "$out" | sed -n 's/.*password: //p')"
+          echo "::add-mask::$password"
+          docker run -d --init --name liberarr -p 127.0.0.1:8484:8484 -v liberarr:/data liberarr:test
+          for _ in $(seq 30); do curl -fsS http://127.0.0.1:8484/api/health && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8484/login | grep -q '<title>Liberarr</title>'
+          curl -fsS -c cookies -H 'Content-Type: application/json' \
+            -d "{\"username\":\"admin\",\"password\":\"$password\"}" http://127.0.0.1:8484/api/auth/login
+          curl -fsS -b cookies http://127.0.0.1:8484/api/auth/me
+          docker stop liberarr
+      - name: Push the image
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ghcr.io/${{ github.repository }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag liberarr:test "$IMAGE:${GITHUB_REF_NAME#v}-$ARCH"
+          docker push "$IMAGE:${GITHUB_REF_NAME#v}-$ARCH"
+
+  # One multi-architecture image under the version and `latest`, attested, once the release exists.
+  container-manifest:
+    needs: [container, release]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          # Audit: this job runs only on a tag, and no tag run has happened yet.
+          egress-policy: audit
+      - name: Merge the two architectures
+        id: merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ghcr.io/${{ github.repository }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker buildx imagetools create -t "$IMAGE:$version" -t "$IMAGE:latest" "$IMAGE:$version-amd64" "$IMAGE:$version-arm64"
+          digest="$(docker buildx imagetools inspect "$IMAGE:$version" --format '{{json .Manifest}}' | jq -r .digest)"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.merge.outputs.digest }}
+          push-to-registry: true
+          # Storage records exist only for organization-owned repositories.
+          create-storage-record: false
+
+  # The install script and the Homebrew formula (from the archives' hashes), also run on pull requests.
+  assets:
+    needs: build
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Generate the install script and the Homebrew formula
+        run: |
+          # The build job checks that a tag matches this version.
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+          mkdir assets
+          cp packaging/install.sh assets/
+          packaging/homebrew-formula.sh "$version" dist > assets/liberarr.rb
+          (cd assets && shasum -a 256 install.sh > install.sh.sha256)
+          cat assets/liberarr.rb
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: assets
+          path: assets
+          if-no-files-found: error
+
+  release:
+    needs: [build, assets]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-26.04
     permissions:
@@ -93,6 +223,7 @@ jobs:
     steps:
       - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
+          # Audit: this job runs only on a tag, and no tag run has happened yet.
           egress-policy: audit
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:

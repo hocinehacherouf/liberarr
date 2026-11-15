@@ -15,8 +15,22 @@ jobs:
     steps:
       - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
-          # Audit first: the run insights give the endpoints for a later `block` policy.
-          egress-policy: audit
+          # A new host fails the job: the run insights (link in this step's log) show the blocked call.
+          # rustup (also inside cargo-deny), cargo, apt-get update (its hooks call esm/motd), cargo-deny's
+          # advisory database (github.com). ec2 mirror: the apt mirror of the runner's AWS region.
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            static.rust-lang.org:443
+            index.crates.io:443
+            static.crates.io:443
+            azure.archive.ubuntu.com:80
+            *.ec2.archive.ubuntu.com:80
+            security.ubuntu.com:80
+            packages.microsoft.com:443
+            esm.ubuntu.com:443
+            motd.ubuntu.com:443
+            results-receiver.actions.githubusercontent.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false

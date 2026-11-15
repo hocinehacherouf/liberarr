@@ -18,6 +18,8 @@
     "back": "← Enregistrements",
     "untitled": "Enregistrement {{id}}",
     "empty": "Aucun enregistrement pour le moment.",
+    "searchByTitle": "Rechercher des enregistrements par titre",
+    "noMatches": "Aucun enregistrement ne correspond à votre recherche.",
     "loadError": "Impossible de charger les enregistrements.",
     "notFound": "Enregistrement introuvable.",
     "processing": "Traitement en cours…",
@@ -31,6 +33,13 @@
       "processing": "En cours",
       "failed": "Échec",
       "done": "Prêt"
+    },
+    "pipeline": "Étapes du traitement",
+    "jobStatus": {
+      "queued": "en attente",
+      "running": "en cours",
+      "failed": "échec",
+      "done": "terminée"
     },
     "steps": {
       "transcribe": "transcription",

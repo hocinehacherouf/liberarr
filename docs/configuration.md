@@ -14,7 +14,7 @@ Everything lives in `LIBERARR_HOME`, default `~/.liberarr`:
 
 `LIBERARR_HOME` must be on a local disk: the job worker uses file locks, which are unreliable on network filesystems and some Docker bind mounts.
 
-To move Liberarr to another machine, copy the whole folder.
+To move Liberarr to another machine, copy the whole folder while Liberarr is stopped, or use `liberarr backup` and restore it there (see [Backup and restore](backup.md)).
 
 ## The `.env` file
 

@@ -164,10 +164,22 @@ pub enum DataPacket {
         offset: u32,
         bytes: Vec<u8>,
     },
-    /// Offset `0xFFFFFFFF`.
-    End,
+    /// Offset `0xFFFFFFFF`; same layout as `Data`, so it names its session.
+    End { session: u32 },
     /// Command 29.
     Tail,
+}
+
+impl DataPacket {
+    /// Whether this packet ends the download of `session`. An End of another session is a late
+    /// packet from an earlier transfer on the same link and must not end this one.
+    pub fn ends(&self, session: u32) -> bool {
+        match self {
+            DataPacket::End { session: s } => *s == session,
+            DataPacket::Tail => true,
+            DataPacket::Data { .. } => false,
+        }
+    }
 }
 
 /// `[0x02][session u32][offset u32][len u8][bytes]`. A `len` past the packet end is clamped; the
@@ -178,7 +190,7 @@ pub fn parse_data_packet(p: &[u8]) -> Option<DataPacket> {
         2 => {
             let (session, offset, len) = (u32le(p, 1)?, u32le(p, 5)?, *p.get(9)? as usize);
             if offset == u32::MAX {
-                return Some(DataPacket::End);
+                return Some(DataPacket::End { session });
             }
             let rest = p.get(10..)?;
             Some(DataPacket::Data {
@@ -280,7 +292,10 @@ mod tests {
             })
         );
         d[5..9].copy_from_slice(&u32::MAX.to_le_bytes());
-        assert_eq!(parse_data_packet(&d), Some(DataPacket::End));
+        assert_eq!(
+            parse_data_packet(&d),
+            Some(DataPacket::End { session: 1000 })
+        );
         assert_eq!(parse_data_packet(&[1, 29, 0]), Some(DataPacket::Tail));
         assert_eq!(parse_data_packet(&[1, 30, 0]), None);
 
@@ -299,5 +314,42 @@ mod tests {
             Some((2, 1, &[9u8, 9][..]))
         );
         assert_eq!(parse_secret_part(&[0x11, 0xFE, 2, 1, 9]), None);
+    }
+
+    #[test]
+    fn a_late_end_of_another_session_does_not_end_the_download() {
+        let end = |session: u32| {
+            let mut p = vec![2];
+            p.extend_from_slice(&session.to_le_bytes());
+            p.extend_from_slice(&u32::MAX.to_le_bytes());
+            p.push(0);
+            p
+        };
+        let data = |session: u32, offset: u32| {
+            let mut p = vec![2];
+            p.extend_from_slice(&session.to_le_bytes());
+            p.extend_from_slice(&offset.to_le_bytes());
+            p.extend_from_slice(&[2, 7, 7]);
+            p
+        };
+        // Fake link: session A's End arrives late, while session B is downloading.
+        let (a, b) = (1000, 2000);
+        let link = [end(a), data(b, 0), data(b, 2), end(b), data(b, 4)];
+        let (mut got, mut ended_at) = (vec![], None);
+        for (i, raw) in link.iter().enumerate() {
+            let pkt = parse_data_packet(raw).unwrap();
+            if pkt.ends(b) {
+                ended_at = Some(i);
+                break;
+            }
+            if let DataPacket::Data { session, bytes, .. } = pkt
+                && session == b
+            {
+                got.extend(bytes);
+            }
+        }
+        assert_eq!(ended_at, Some(3));
+        assert_eq!(got, vec![7; 4]);
+        assert!(DataPacket::Tail.ends(b));
     }
 }

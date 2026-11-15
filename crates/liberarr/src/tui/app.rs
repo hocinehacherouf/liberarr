@@ -15,7 +15,12 @@ use liberarr_core::summaries::{MeetingSummary, SummaryRepo};
 use liberarr_core::transcription::Transcript;
 use liberarr_web::Backend;
 use ratatui::DefaultTerminal;
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+    KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::crossterm::execute;
+use ratatui::layout::{Position, Rect};
 use ratatui::style::Style;
 use ratatui::widgets::ListState;
 use rust_i18n::t;
@@ -99,6 +104,16 @@ enum Fx {
     Finished,
 }
 
+/// Where the last frame drew what a click can hit. Empty when not on screen.
+#[derive(Default)]
+struct Areas {
+    list: Rect,
+    /// The rows of the recordings, under the search bar.
+    rows: Rect,
+    preview: Rect,
+    tabs: Vec<Rect>,
+}
+
 struct Ui {
     app: Arc<App>,
     rt: Handle,
@@ -132,6 +147,9 @@ struct Ui {
     /// Set by the last frame: the two panes are side by side; rows of the preview content.
     wide: bool,
     page: u16,
+    areas: Areas,
+    /// The mouse is captured; off, the terminal selects text.
+    mouse: bool,
     refreshed: Instant,
 }
 
@@ -162,9 +180,20 @@ pub fn run(term: &mut DefaultTerminal, cfg: Config) -> Result<Exit, AnyError> {
         ui.toast(warnings.join(" "), theme::warn());
     }
     ui.reload()?;
+    capture(true)?;
     let exit = ui.event_loop(term);
     worker.abort();
+    // The setup that may follow takes no mouse. On error, `Screen` turns it off.
+    let _ = capture(false);
     exit
+}
+
+fn capture(on: bool) -> std::io::Result<()> {
+    if on {
+        execute!(std::io::stdout(), EnableMouseCapture)
+    } else {
+        execute!(std::io::stdout(), DisableMouseCapture)
+    }
 }
 
 fn key(ev: &Event) -> Option<KeyEvent> {
@@ -210,6 +239,8 @@ impl Ui {
             swapped: Instant::now(),
             wide: false,
             page: 0,
+            areas: Areas::default(),
+            mouse: true,
             refreshed: Instant::now(),
         }
     }
@@ -328,7 +359,19 @@ impl Ui {
             if !event::poll(Duration::from_millis(wait))? {
                 continue;
             }
-            let ev = event::read()?;
+            // Pointer moves and releases change nothing: they wait for the next event without a
+            // new frame, or the frame would be drawn again on every move.
+            let ev = loop {
+                let ev = event::read()?;
+                let noise = matches!(&ev, Event::Mouse(m) if matches!(m.kind,
+                    MouseEventKind::Moved | MouseEventKind::Drag(_) | MouseEventKind::Up(_)));
+                if !noise || !event::poll(Duration::from_millis(wait))? {
+                    break ev;
+                }
+            };
+            if let Event::Mouse(m) = ev {
+                self.on_mouse(m)?;
+            }
             let Some(k) = key(&ev) else { continue };
             if k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL) {
                 return Ok(Exit::Quit);
@@ -371,11 +414,6 @@ impl Ui {
             self.list.select(Some(0));
             return self.sync(false).map(|()| None);
         }
-        let actions = self
-            .detail
-            .as_ref()
-            .and_then(|d| d.summary.as_ref())
-            .map_or(0, |s| s.actions.len());
         let on_actions = TABS[self.tab] == Tab::Actions;
         let page = self.page.max(1);
         match (k.code, self.focus) {
@@ -385,6 +423,16 @@ impl Ui {
             (KeyCode::Char('s'), _) => return Ok(self.settings()),
             (KeyCode::Char('r'), _) if self.detail.is_some() => self.picker = Some(0),
             (KeyCode::Char('/'), _) => (self.filtering, self.focus) = (true, Focus::List),
+            (KeyCode::Char('m'), _) => {
+                self.mouse = !self.mouse;
+                capture(self.mouse)?;
+                let note = if self.mouse {
+                    "tui.mouse_on"
+                } else {
+                    "tui.mouse_off"
+                };
+                self.toast(t!(note).into_owned(), theme::ok());
+            }
             (KeyCode::Right, _) => self.show_tab((self.tab + 1) % TABS.len()),
             (KeyCode::Left, _) => self.show_tab((self.tab + TABS.len() - 1) % TABS.len()),
             (KeyCode::Char(c @ '1'..='5'), _) => self.show_tab(c as usize - '1' as usize),
@@ -407,26 +455,79 @@ impl Ui {
             // Side by side, the page keys scroll the preview whichever pane has the focus.
             (KeyCode::PageUp, Focus::List) if !self.wide => self.move_selection(-10),
             (KeyCode::PageDown, Focus::List) if !self.wide => self.move_selection(10),
-            (KeyCode::Up | KeyCode::Char('k'), Focus::Preview) if on_actions => {
-                self.action = self.action.saturating_sub(1);
-            }
-            (KeyCode::Down | KeyCode::Char('j'), Focus::Preview) if on_actions => {
-                self.action = (self.action + 1).min(actions.saturating_sub(1));
-            }
             (KeyCode::Char(' '), Focus::Preview) if on_actions => self.toggle_action(),
-            // The frame clamps the scroll to the content.
-            (KeyCode::Up | KeyCode::Char('k'), Focus::Preview) => {
-                self.scroll = self.scroll.saturating_sub(1);
-            }
-            (KeyCode::Down | KeyCode::Char('j'), Focus::Preview) => {
-                self.scroll = self.scroll.saturating_add(1);
-            }
+            (KeyCode::Up | KeyCode::Char('k'), Focus::Preview) => self.step_preview(-1),
+            (KeyCode::Down | KeyCode::Char('j'), Focus::Preview) => self.step_preview(1),
             (KeyCode::PageUp, _) => self.scroll = self.scroll.saturating_sub(page),
             (KeyCode::PageDown, _) => self.scroll = self.scroll.saturating_add(page),
             _ => {}
         }
         self.sync(false)?;
         Ok(None)
+    }
+
+    /// A click picks a recording, a tab or a pane; a click on the selected recording opens it,
+    /// as Enter does. The wheel moves in the pane under the pointer, as the arrow keys do. An
+    /// overlay closes on a click, as on a key.
+    fn on_mouse(&mut self, m: MouseEvent) -> Result<(), AnyError> {
+        let at = Position::new(m.column, m.row);
+        let click = m.kind == MouseEventKind::Down(MouseButton::Left);
+        if self.help || self.picker.is_some() {
+            if click {
+                (self.help, self.picker) = (false, None);
+            }
+            return Ok(());
+        }
+        let by = match m.kind {
+            MouseEventKind::ScrollUp => -1,
+            MouseEventKind::ScrollDown => 1,
+            _ => 0,
+        };
+        let a = &self.areas;
+        if self.areas.list.contains(at) {
+            if by != 0 {
+                self.move_selection(by);
+            } else if click {
+                self.focus = Focus::List;
+                let row = a
+                    .rows
+                    .contains(at)
+                    .then(|| self.list.offset() + usize::from(at.y - a.rows.y));
+                match row.filter(|&r| r < self.visible().len()) {
+                    Some(r) if self.list.selected() == Some(r) => self.focus = Focus::Preview,
+                    Some(r) => self.list.select(Some(r)),
+                    None => {}
+                }
+            }
+        } else if a.preview.contains(at) {
+            if by != 0 {
+                self.step_preview(by);
+            } else if click {
+                self.focus = Focus::Preview;
+                if let Some(tab) = a.tabs.iter().position(|r| r.contains(at)) {
+                    self.show_tab(tab);
+                }
+            }
+        }
+        self.sync(false)
+    }
+
+    /// One step down (or up) in the preview: the cursor of the actions while it shows, the
+    /// scroll otherwise. The frame clamps the scroll to the content.
+    fn step_preview(&mut self, by: isize) {
+        let actions = self
+            .detail
+            .as_ref()
+            .and_then(|d| d.summary.as_ref())
+            .map_or(0, |s| s.actions.len());
+        if self.focus == Focus::Preview && TABS[self.tab] == Tab::Actions {
+            let at = self.action.saturating_add_signed(by);
+            self.action = at.min(actions.saturating_sub(1));
+        } else if by < 0 {
+            self.scroll = self.scroll.saturating_sub(1);
+        } else {
+            self.scroll = self.scroll.saturating_add(1);
+        }
     }
 
     fn show_tab(&mut self, tab: usize) {
@@ -562,6 +663,7 @@ mod tests {
     use liberarr_core::transcription::{Segment, TranscriptRepo};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
 
     fn profile() -> Profile {
         Profile {
@@ -608,9 +710,32 @@ mod tests {
                 term.draw(|f| ui.draw(f, Duration::from_millis(elapsed)))
                     .unwrap();
             }
-            let buf = term.backend().buffer().clone();
-            buf.content().iter().map(|c| c.symbol()).collect::<String>()
+            term.backend().buffer().clone()
         };
+        let text = |buf: &Buffer| buf.content().iter().map(|c| c.symbol()).collect::<String>();
+        // The top left cell of `s` on screen.
+        let find = |buf: &Buffer, s: &str| {
+            let (w, h) = (buf.area.width, buf.area.height);
+            (0..h)
+                .flat_map(|y| (0..w).map(move |x| (x, y)))
+                .find(|&(x, y)| {
+                    (x..w)
+                        .map(|x| buf[(x, y)].symbol())
+                        .collect::<String>()
+                        .starts_with(s)
+                })
+                .unwrap_or_else(|| panic!("{s} is not on screen"))
+        };
+        let click = |ui: &mut Ui, (column, row): (u16, u16), kind| {
+            ui.on_mouse(MouseEvent {
+                kind,
+                column,
+                row,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap();
+        };
+        let left = MouseEventKind::Down(MouseButton::Left);
         // No recording yet.
         ui.reload().unwrap();
         draw(&mut ui, 140, 40);
@@ -689,8 +814,49 @@ mod tests {
 
         let wide = draw(&mut ui, 140, 40);
         for shown in ["Budget review", "Ship on Friday", "summarize", "30%"] {
-            assert!(wide.contains(shown), "{shown} is not on the dashboard");
+            assert!(
+                text(&wide).contains(shown),
+                "{shown} is not on the dashboard"
+            );
         }
+
+        // Clicks on the last recording, under it, on the border, on the first one.
+        let (x, last) = find(&wide, "Failed one");
+        click(&mut ui, (x, last), left);
+        assert_eq!(ui.list.selected(), Some(1));
+        for empty in [last + 1, last - 2] {
+            click(&mut ui, (x, empty), left);
+            assert_eq!(ui.list.selected(), Some(1));
+        }
+        assert!(ui.focus == Focus::List);
+        // The list's left border, then the first row; a second click on it opens the preview.
+        click(&mut ui, (0, last - 1), left);
+        assert_eq!(ui.list.selected(), Some(1));
+        click(&mut ui, (x, last - 1), left);
+        assert_eq!(ui.list.selected(), Some(0));
+        assert!(ui.focus == Focus::List);
+        click(&mut ui, (x, last - 1), left);
+        assert!(ui.focus == Focus::Preview);
+        // The wheel over the list moves the selection, a click on a tab opens it.
+        click(&mut ui, (x, last), MouseEventKind::ScrollDown);
+        assert_eq!(ui.list.selected(), Some(1));
+        click(&mut ui, (x, last), MouseEventKind::ScrollUp);
+        let wide = draw(&mut ui, 140, 40);
+        let (jobs, y) = find(&wide, "Jobs");
+        click(&mut ui, (jobs, y), left);
+        assert_eq!(ui.tab, 4);
+        // The last column of the Summary tab, padding included.
+        let (summary, y) = find(&wide, "Summary");
+        click(&mut ui, (summary + 8, y), left);
+        assert_eq!(ui.tab, 0);
+        let (x, y) = find(&wide, "Ship on Friday");
+        click(&mut ui, (x, y), MouseEventKind::ScrollDown);
+        assert_eq!(ui.scroll, 1);
+        // An overlay takes the click and closes.
+        ui.help = true;
+        click(&mut ui, (jobs, y), left);
+        assert!(!ui.help && ui.tab == 0);
+        ui.scroll = 0;
         for (w, h) in [(200, 60), (140, 40), (100, 30), (80, 24), (60, 16), (30, 8)] {
             for focus in [Focus::List, Focus::Preview] {
                 for tab in 0..TABS.len() {

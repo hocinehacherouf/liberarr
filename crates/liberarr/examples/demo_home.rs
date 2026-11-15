@@ -408,6 +408,67 @@ const DEMOS: &[Demo] = &[
 
 type AnyError = Box<dyn std::error::Error>;
 
+/// Ogg CRC-32 (polynomial 0x04C11DB7, no reflection, initial value 0).
+fn ogg_crc(page: &[u8]) -> u32 {
+    page.iter().fold(0, |mut c, &b| {
+        c ^= u32::from(b) << 24;
+        for _ in 0..8 {
+            c = if c & 0x8000_0000 != 0 {
+                (c << 1) ^ 0x04C1_1DB7
+            } else {
+                c << 1
+            };
+        }
+        c
+    })
+}
+
+/// One Ogg page of the stream with serial 1: `packets` are whole packets, `granule` the position
+/// after the last one, `kind` the header type flags.
+fn ogg_page(seq: u32, kind: u8, granule: u64, packets: &[&[u8]]) -> Vec<u8> {
+    let mut page = b"OggS\0".to_vec();
+    page.push(kind);
+    page.extend(granule.to_le_bytes());
+    page.extend(1u32.to_le_bytes());
+    page.extend(seq.to_le_bytes());
+    page.extend([0; 4]); // CRC, filled below
+    page.push(packets.len() as u8);
+    // Packets here are far below 255 bytes: one segment each.
+    page.extend(packets.iter().map(|p| p.len() as u8));
+    page.extend(packets.concat());
+    let crc = ogg_crc(&page);
+    page[22..26].copy_from_slice(&crc.to_le_bytes());
+    page
+}
+
+/// Ogg Opus of `seconds` of silence, built by hand so no encoder is needed: the headers
+/// (mono, 48 kHz) then 20 ms packets of the 3-byte CELT silence frame. It passes `verify_ogg`.
+fn silent_ogg(seconds: usize) -> Vec<u8> {
+    let mut head = b"OpusHead\x01\x01".to_vec();
+    head.extend(312u16.to_le_bytes()); // pre-skip
+    head.extend(48_000u32.to_le_bytes());
+    head.extend([0; 3]); // gain, mapping family
+    let mut tags = b"OpusTags".to_vec();
+    tags.extend(0u32.to_le_bytes()); // no vendor string
+    tags.extend(0u32.to_le_bytes()); // no comments
+    let mut out = ogg_page(0, 0x02, 0, &[&head]);
+    out.extend(ogg_page(1, 0, 0, &[&tags]));
+    let silence: &[u8] = &[0xF8, 0xFF, 0xFE];
+    let packets = seconds * 50;
+    let per_page = 100;
+    for (n, first) in (0..packets).step_by(per_page).enumerate() {
+        let count = per_page.min(packets - first);
+        let last = first + count == packets;
+        out.extend(ogg_page(
+            2 + n as u32,
+            if last { 0x04 } else { 0 },
+            ((first + count) * 960 + 312) as u64,
+            &vec![silence; count],
+        ));
+    }
+    out
+}
+
 #[tokio::main]
 async fn main() -> Result<(), AnyError> {
     let home = PathBuf::from(
@@ -459,6 +520,9 @@ async fn main() -> Result<(), AnyError> {
         },
     ])?;
 
+    // Where the app looks for the audio of a recording: `audio_path` is relative to this folder.
+    std::fs::create_dir_all(home.join("audio"))?;
+
     let db = Db::open(&home.join("liberarr.db"))?;
     // Marks this process as a live worker (see `Db::reset_stale`): while it runs, the app
     // leaves the job seeded as running alone, so one recording stays "processing".
@@ -466,6 +530,14 @@ async fn main() -> Result<(), AnyError> {
     let now = jiff::Timestamp::now();
     for d in DEMOS {
         let created_at = now.checked_sub(jiff::SignedDuration::from_mins(d.minutes_ago))?;
+        // As long as the recording, so a click on a late line of the transcript seeks there.
+        let audio = silent_ogg(d.seconds.ceil() as usize);
+        liberarr_core::audio::ogg::verify_ogg(&audio).map_err(|e| e.to_string())?;
+        std::fs::write(
+            home.join("audio")
+                .join(format!("demo-{}.ogg", d.minutes_ago)),
+            &audio,
+        )?;
         let id = db
             .add(NewRecording {
                 title: Some(d.title.into()),

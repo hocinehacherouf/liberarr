@@ -3,6 +3,9 @@
 **Is Liberarr affiliated with Plaud?**
 No. It is an independent project, not affiliated with, endorsed by or sponsored by Plaud. "Plaud" only names the hardware it works with.
 
+**Is Liberarr affiliated with the AI providers?**
+No. Their names only say which services Liberarr can talk to. You use each provider with your own account and key, under that provider's terms and prices.
+
 **Do I need a Plaud account?**
 Once, for `link`: the device keys are only available from your account. After that, `pull` works without it.
 
@@ -39,7 +42,7 @@ Yes, outside the `%% liberarr:start %%` / `%% liberarr:end %%` markers. Liberarr
 One admin user for now.
 
 **Where are my data, and how do I back them up?**
-In `LIBERARR_HOME` (default `~/.liberarr`). Back up that folder, `.env` included (without it, the stored device keys cannot be read). Stop `serve` and `tui` first for a consistent copy of the database.
+In `LIBERARR_HOME` (default `~/.liberarr`). `liberarr backup <folder>` copies it safely, even while Liberarr runs; keep the `.env` separately. See [Backup and restore](backup.md).
 
 **How do I get help on a command?**
 `liberarr --help` and `liberarr <command> --help`, in English or French.

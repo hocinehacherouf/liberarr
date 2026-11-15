@@ -1,11 +1,32 @@
-import { useRef } from 'react'
+import { useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
 import { Link, useParams } from 'react-router'
+import { Loading } from '../../shared/Loading'
+import { formatDate, formatTimestamp } from '../../shared/time'
 import { ActionsTable } from '../summaries/ActionsTable'
 import { Mindmap } from '../summaries/Mindmap'
 import { TranscriptView } from '../transcription/TranscriptView'
-import { useRecording, useRerun } from './api'
+import { useRecording, useRerun, type Job } from './api'
+import { StatusBadge } from './StatusBadge'
+
+// Glyph and color of a pipeline step, as in the terminal app: the glyph alone tells the state.
+const JOB: Record<Job['status'], [string, string]> = {
+  done: ['✓', 'text-ok'],
+  failed: ['✕', 'text-err'],
+  running: ['◌', 'text-accent motion-safe:animate-pulse'],
+  queued: ['·', 'text-muted'],
+}
+
+/** A pane of the page: rounded border, its title on top. */
+function Pane({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-xl border border-line bg-surface p-4 sm:p-5">
+      <h2 className="mb-3 text-sm font-semibold tracking-wide text-accent uppercase">{title}</h2>
+      {children}
+    </section>
+  )
+}
 
 export function RecordingPage() {
   const { t } = useTranslation()
@@ -20,34 +41,63 @@ export function RecordingPage() {
     void audio.current.play().catch(() => {})
   }
 
-  if (isLoading) return <p className="p-8 text-zinc-400">{t('common.loading')}</p>
+  const back = (
+    <Link to="/" className="rounded text-sm text-muted underline-offset-2 hover:text-fg hover:underline">
+      {t('recordings.back')}
+    </Link>
+  )
+  if (isLoading) return <Loading className="mx-auto max-w-5xl px-4 py-8" />
   if (isError || !rec)
     return (
-      <p role="alert" className="p-8 text-red-400">
-        {t('recordings.notFound')}
-      </p>
+      <main className="mx-auto max-w-5xl space-y-4 px-4 py-8">
+        {back}
+        <p role="alert" className="rounded-lg border border-err/40 bg-err/10 p-4 text-sm text-err">
+          {t('recordings.notFound')}
+        </p>
+      </main>
     )
 
   const failedStep = rec.status === 'failed' ? rec.failed_step : null
   const failedJob = failedStep ? rec.jobs.findLast((j) => j.step === failedStep) : undefined
-  const h2 = 'mb-3 text-lg font-semibold'
+  // The latest job of each step, in the order the steps first ran.
+  const steps = [...new Set(rec.jobs.map((j) => j.step))].map((step) => rec.jobs.findLast((j) => j.step === step)!)
 
   return (
-    <main className="mx-auto max-w-5xl space-y-8 px-4 py-8">
-      <div>
-        <Link to="/" className="text-sm text-zinc-300 underline-offset-2 hover:underline">
-          {t('recordings.back')}
-        </Link>
-        <h1 className="mt-2 text-2xl font-semibold">
+    <main className="mx-auto max-w-5xl space-y-4 px-4 py-6 sm:py-8">
+      <div className="space-y-2">
+        {back}
+        <h1 className="text-2xl font-semibold tracking-tight text-balance">
           {rec.summary?.title ?? rec.title ?? t('recordings.untitled', { id: rec.id })}
         </h1>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted">
+          <StatusBadge recording={rec} />
+          <time dateTime={rec.created_at}>{formatDate(rec.created_at)}</time>
+          {rec.duration_s != null && <span className="font-mono tabular-nums">{formatTimestamp(rec.duration_s)}</span>}
+          {steps.length > 0 && (
+            <ol aria-label={t('recordings.pipeline')} className="flex flex-wrap items-center gap-x-2 font-mono text-xs">
+              {steps.map((j, i) => (
+                <li key={j.step} className="flex items-center gap-2">
+                  {i > 0 && <span aria-hidden="true" className="text-line">──</span>}
+                  <span className={JOB[j.status][1]} aria-hidden="true">
+                    {JOB[j.status][0]}
+                  </span>
+                  <span className="text-fg">{t(`recordings.steps.${j.step}`, { defaultValue: j.step })}</span>
+                  <span className="sr-only">{t(`recordings.jobStatus.${j.status}`)}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
       </div>
 
       {failedStep && (
         <div
           role="alert"
-          className="flex flex-wrap items-center gap-3 rounded-lg border border-red-800 bg-red-950 p-4 text-sm"
+          className="flex flex-wrap items-center gap-3 rounded-lg border border-err/40 bg-err/10 p-4 text-sm"
         >
+          <span aria-hidden="true" className="text-err">
+            ▲
+          </span>
           <span className="flex-1">
             {t(failedJob?.error ? 'recordings.stepFailedWithError' : 'recordings.stepFailed', {
               step: t(`recordings.steps.${failedStep}`, { defaultValue: failedStep }),
@@ -57,61 +107,58 @@ export function RecordingPage() {
           <button
             onClick={() => rerun.mutate(failedStep)}
             disabled={rerun.isPending}
-            className="rounded-md bg-red-700 px-3 py-1.5 font-medium hover:bg-red-600 disabled:opacity-60"
+            className="bg-brand-strong rounded-md px-3 py-1.5 font-semibold text-white hover:brightness-110 disabled:opacity-60"
           >
             {t('recordings.retry')}
           </button>
         </div>
       )}
       {rerun.isError && (
-        <p role="alert" className="text-sm text-red-400">
+        <p role="alert" className="text-sm text-err">
           {t('recordings.retryError')}
         </p>
       )}
       {rec.status === 'processing' && (
-        <p role="status" className="text-sm text-sky-300">
+        <p role="status" className="flex items-center gap-2 rounded-lg border border-accent/40 bg-accent/10 p-4 text-sm text-accent">
+          <span aria-hidden="true" className="motion-safe:animate-pulse">
+            ◌
+          </span>
           {t('recordings.processing')}
         </p>
       )}
 
       {rec.no_speech && (
-        <p role="status" className="text-sm text-zinc-300">
+        <p role="status" className="rounded-lg border border-dashed border-line p-4 text-sm text-muted">
           {t('recordings.noSpeechDetail')}
         </p>
       )}
 
-      <audio
-        ref={audio}
-        controls
-        src={`/api/recordings/${id}/audio`}
-        className="sticky top-2 z-10 w-full"
-      />
+      {/* Sticky under the header, so the transcript and the action times stay playable. */}
+      <div className="sticky top-14 z-10 -mx-1 rounded-full bg-canvas/90 p-1 backdrop-blur">
+        <audio ref={audio} controls src={`/api/recordings/${id}/audio`} className="block w-full" />
+      </div>
 
       {rec.summary && (
         <>
-          <section>
-            <h2 className={h2}>{t('summaries.summary')}</h2>
+          <Pane title={t('summaries.summary')}>
             {/* No raw HTML (react-markdown default) and no images: a remote URL in LLM output would leak. */}
-            <div className="space-y-2 [&_a]:text-emerald-400 [&_a]:underline [&_h1]:mt-4 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:mt-4 [&_h2]:font-semibold [&_h3]:mt-3 [&_h3]:font-semibold [&_li]:ml-5 [&_ol]:list-decimal [&_ul]:list-disc">
+            <div className="space-y-2 leading-relaxed [&_a]:text-accent [&_a]:underline [&_h1]:mt-4 [&_h1]:font-semibold [&_h1]:text-accent [&_h1:first-child]:mt-0 [&_h2]:mt-4 [&_h2]:font-semibold [&_h2]:text-accent [&_h2:first-child]:mt-0 [&_h3]:mt-3 [&_h3]:font-semibold [&_li]:ml-5 [&_li::marker]:text-muted [&_ol]:list-decimal [&_ul]:list-disc">
               <Markdown disallowedElements={['img']}>{rec.summary.summary_md}</Markdown>
             </div>
-          </section>
-          <section>
-            <h2 className={h2}>{t('summaries.mindmap')}</h2>
+          </Pane>
+          <Pane title={t('summaries.mindmap')}>
             <Mindmap code={rec.summary.mindmap} />
-          </section>
-          <section>
-            <h2 className={h2}>{t('summaries.actions.title')}</h2>
+          </Pane>
+          <Pane title={t('summaries.actions.title')}>
             <ActionsTable recordingId={id} actions={rec.summary.actions} onSeek={seek} />
-          </section>
+          </Pane>
         </>
       )}
 
       {rec.transcript && (
-        <section>
-          <h2 className={h2}>{t('transcription.title')}</h2>
+        <Pane title={t('transcription.title')}>
           <TranscriptView transcript={rec.transcript} audio={audio} onSeek={seek} />
-        </section>
+        </Pane>
       )}
     </main>
   )

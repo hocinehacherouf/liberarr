@@ -8,6 +8,7 @@ Liberarr keeps everything in `LIBERARR_HOME` on your machine. Its database and w
 | The audio of each recording, and your `LIBERARR_TRANSCRIBE_VOCABULARY` list when set | Your transcription provider | Transcription step. |
 | The transcript of each recording | Your summary provider | Summary step. |
 | Your API keys | The provider each key belongs to | Each request, and the key test in `init`. |
+| The summaries, actions and transcripts your AI agent reads | The AI provider of that agent | Only if you connect an agent to `liberarr mcp` ([AI agents](agents.md)). |
 
 Nothing else is sent: no telemetry, no analytics. `pull` talks to the device over Bluetooth only.
 

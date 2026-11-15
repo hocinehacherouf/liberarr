@@ -207,7 +207,7 @@ impl DeviceSession for BtleSession {
         loop {
             let pkt = self.0.recv(20).await?;
             match proto::parse_data_packet(&pkt) {
-                Some(DataPacket::Tail | DataPacket::End) => return Ok(()),
+                Some(p) if p.ends(session) => return Ok(()),
                 Some(DataPacket::Data {
                     session: s,
                     offset,
@@ -216,7 +216,7 @@ impl DeviceSession for BtleSession {
                     if let Err(e) = sink(offset, &bytes) {
                         // The device keeps streaming: swallow the rest of this transfer so it
                         // cannot leak into the next download on this link.
-                        self.0.drain_transfer().await;
+                        self.0.drain_transfer(session).await;
                         return Err(e);
                     }
                 }
@@ -348,14 +348,11 @@ impl Link {
         }
     }
 
-    /// Discards packets until the transfer ends (End/Tail), the link drops, or the device has
-    /// been quiet for 2 s.
-    async fn drain_transfer(&mut self) {
+    /// Discards packets until the transfer of `session` ends (its End, or Tail), the link drops,
+    /// or the device has been quiet for 2 s.
+    async fn drain_transfer(&mut self, session: u32) {
         while let Ok(p) = self.recv(2).await {
-            if matches!(
-                proto::parse_data_packet(&p),
-                Some(DataPacket::End | DataPacket::Tail)
-            ) {
+            if proto::parse_data_packet(&p).is_some_and(|p| p.ends(session)) {
                 break;
             }
         }

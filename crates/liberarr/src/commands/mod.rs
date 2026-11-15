@@ -1,7 +1,10 @@
 //! One module per CLI command. Output is for the owner, translated (`locales/`); it never shows a token, a key,
-//! a full serial, a transcript or a summary.
+//! a full serial, a transcript or a summary (`mcp` excepted: it serves them, read-only, to the
+//! owner's AI agent on stdout, which carries protocol messages only).
+pub mod backup;
 pub mod init;
 pub mod link;
+pub mod mcp;
 pub mod process;
 pub mod pull;
 pub mod rerun;
