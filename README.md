@@ -46,6 +46,14 @@ Liberarr is an independent project, **not affiliated with, endorsed by or sponso
 - **Local web UI** (`liberarr serve`): read recordings, play the audio next to the transcript, rerun a failed step, behind a login.
 - **English and French**, for the interface and for the summaries.
 
+<div align="center">
+
+<img src="docs/assets/web-recording.png" alt="The Liberarr web UI on a recording page: the audio player, then the summary and the mind map of the recording" width="880">
+
+<sub>The web UI (`liberarr serve`), on fictional recordings.</sub>
+
+</div>
+
 ## Install
 
 No release is published yet: for now, build from source with [docs/development.md](docs/development.md). Once a release is out, download the archive for your platform from the [releases page](https://github.com/hocinehacherouf/liberarr/releases), check it and put `liberarr` in your `PATH`: see [docs/install.md](docs/install.md). macOS (Apple silicon, Intel) and Linux (x86-64, ARM64).
