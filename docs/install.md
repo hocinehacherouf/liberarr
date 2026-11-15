@@ -19,7 +19,7 @@ Linux builds need glibc 2.35 or newer (Ubuntu 22.04, Debian 12) and use the host
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/hocinehacherouf/liberarr/releases/latest/download/install.sh | sh
 ```
 
-The script picks the archive for your system, checks its SHA-256 and puts `liberarr` in `~/.local/bin`. It stops without installing anything on an unknown system, a failed download or a checksum mismatch. To install a given version, set `LIBERARR_VERSION`:
+The script picks the archive for your system, checks its SHA-256 and puts `liberarr` in `~/.local/bin`. When the [GitHub CLI](https://cli.github.com) is installed and signed in, it also checks the archive's attestation (built by this repository's release workflow); otherwise it prints the command to check it by hand. It stops without installing anything on an unknown system, a failed download, a checksum mismatch or a failed attestation check. To install a given version, set `LIBERARR_VERSION`:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/hocinehacherouf/liberarr/releases/latest/download/install.sh | LIBERARR_VERSION=0.2.0 sh
