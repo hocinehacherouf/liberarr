@@ -34,7 +34,7 @@ Dependency direction (checked by Cargo): `core` depends on no other workspace cr
 
 ## Stack
 
-- Rust 1.95.0 (`rust-toolchain.toml`), edition 2024. Workspace lints: `unsafe_code = "forbid"`, clippy `unwrap_used = "warn"` (allowed in tests). CI runs `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace`, `cargo deny check advisories licenses`.
+- Rust: the version pinned in `rust-toolchain.toml`, edition 2024. Workspace lints: `unsafe_code = "forbid"`, clippy `unwrap_used = "warn"` (allowed in tests). CI runs `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace`, `cargo deny check advisories licenses sources`.
 - CLI: clap. HTTP: axum. DB: SQLite via rusqlite (bundled). Device: btleplug (BLE). AI: reqwest, one adapter per provider.
 - UI: **Vite** + React + TypeScript, Tailwind, TanStack Query, Mermaid. Built to `web/dist` and embedded in the binary. Node is a contributor/CI build tool only, never a user prerequisite. Build order: `npm --prefix web ci && npm --prefix web run build`, then `cargo build --release`.
 - Transcription must handle **French with mixed English** in the same recording (multilingual models only, no forced language).
