@@ -10,10 +10,12 @@ Set Height 720
 Set Padding 14
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 10ms
+# A low frame rate: a loaded machine cannot capture more, and the demo would play too fast.
+Set Framerate 12
 
 Hide
 # The seed stays open while its input is open (90 s here): it stands in for a running worker.
-Type "export LIBERARR_HOME=${LIBERARR_DEMO_HOME:-/tmp/liberarr-demo} COLORTERM=truecolor LIBERARR_LANG=en"
+Type "export LIBERARR_HOME=${LIBERARR_DEMO_HOME:-/tmp/liberarr-demo} COLORTERM=truecolor LC_ALL=en_US.UTF-8"
 Enter
 Type "(sleep 90 | target/debug/examples/demo_home $LIBERARR_HOME >/dev/null 2>&1 &); sleep 3; clear"
 Enter
