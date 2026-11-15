@@ -32,6 +32,8 @@ LIBERARR_HOME=/tmp/liberarr-demo cargo run -p liberarr -- tui     # in another t
 
 The first command stays open on purpose: it stands in for a running worker, so the recording shown as processing stays in that state. Once it is stopped, the app takes that job and it fails, because the demo providers point at a closed local port. The demo recordings have no audio file.
 
+The README demo is recorded from this data with [VHS](https://github.com/charmbracelet/vhs): `vhs docs/assets/demo.tape` (the build commands are at the top of the tape).
+
 ## Pull requests
 
 - One topic per pull request. Code, comments, commit messages and docs are in English.
