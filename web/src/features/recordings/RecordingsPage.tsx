@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 import { Loading } from '../../shared/Loading'
@@ -8,6 +9,9 @@ import { StatusBadge } from './StatusBadge'
 export function RecordingsPage() {
   const { t } = useTranslation()
   const { data, isLoading, isError } = useRecordings()
+  const [search, setSearch] = useState('')
+  const query = search.trim().toLowerCase()
+  const matches = query ? data?.filter((recording) => recording.title?.toLowerCase().includes(query)) : data
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6 sm:py-8">
@@ -27,8 +31,24 @@ export function RecordingsPage() {
         </p>
       )}
       {data && data.length > 0 && (
+        <label className="mb-4 block max-w-sm text-sm font-medium text-muted">
+          {t('recordings.searchByTitle')}
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="mt-1 w-full rounded-md border border-line bg-canvas px-3 py-2 text-fg focus:border-accent"
+          />
+        </label>
+      )}
+      {query && data && data.length > 0 && matches?.length === 0 && (
+        <p role="status" className="rounded-xl border border-dashed border-line bg-surface p-8 text-center text-muted">
+          {t('recordings.noMatches')}
+        </p>
+      )}
+      {matches && matches.length > 0 && (
         <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
-          {data.map((r) => (
+          {matches.map((r) => (
             <li key={r.id}>
               <Link
                 to={`/recordings/${r.id}`}
