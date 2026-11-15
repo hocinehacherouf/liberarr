@@ -19,6 +19,7 @@ Download `liberarr-<target>.tar.gz` and its `.sha256` file from the [releases pa
 
 ```sh
 shasum -a 256 -c liberarr-<target>.tar.gz.sha256
+gh attestation verify liberarr-<target>.tar.gz --repo hocinehacherouf/liberarr   # optional: proves the archive was built by this repository's release workflow
 tar -xzf liberarr-<target>.tar.gz
 chmod +x liberarr
 xattr -d com.apple.quarantine liberarr 2>/dev/null || true   # macOS: the binary is not notarized

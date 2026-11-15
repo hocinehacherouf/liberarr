@@ -3,12 +3,8 @@ name: Web
 on:
   push:
     branches: [main]
+  # No path filter: the job is a required check, and a required check that never runs blocks the PR.
   pull_request:
-    paths:
-      - "web/**"
-      # The Node version: a Renovate bump of it must not merge untested.
-      - .node-version
-      - .github/workflows/web.yml
 
 permissions:
   contents: read

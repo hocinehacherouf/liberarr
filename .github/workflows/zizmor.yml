@@ -3,9 +3,8 @@ name: zizmor
 on:
   push:
     branches: [main]
+  # No path filter: the job is a required check, and a required check that never runs blocks the PR.
   pull_request:
-    paths:
-      - ".github/**"
 
 permissions:
   contents: read
@@ -20,5 +19,5 @@ jobs:
       - uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
         with:
           version: 1.31.1
-          # Private repo without GitHub Advanced Security: no SARIF upload, findings fail the job.
+          # No SARIF upload: findings fail this required check, also on fork PRs (read-only token).
           advanced-security: false

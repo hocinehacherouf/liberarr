@@ -3,15 +3,8 @@ name: Rust
 on:
   push:
     branches: [main]
+  # No path filter: the job is a required check, and a required check that never runs blocks the PR.
   pull_request:
-    paths:
-      - "crates/**"
-      - Cargo.toml
-      - Cargo.lock
-      - rust-toolchain.toml
-      - clippy.toml
-      - deny.toml
-      - .github/workflows/rust.yml
 
 permissions:
   contents: read
