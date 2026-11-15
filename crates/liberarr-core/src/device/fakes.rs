@@ -88,8 +88,6 @@ pub fn advert(serial: &str) -> Advert {
     Advert {
         id: "id".into(),
         serial: serial.into(),
-        protocol: 20,
-        rssi: -50,
     }
 }
 

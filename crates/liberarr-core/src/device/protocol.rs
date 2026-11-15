@@ -20,8 +20,6 @@ pub const FRAME_ECC_SESSION: u16 = 0xFE30;
 pub struct Advert {
     pub id: String,
     pub serial: String,
-    pub protocol: u16,
-    pub rssi: i16,
 }
 
 /// Serials must not reach logs: only the last 4 characters are shown.
@@ -34,8 +32,6 @@ impl std::fmt::Debug for Advert {
         f.debug_struct("Advert")
             .field("id", &self.id)
             .field("serial", &format_args!("…{tail}"))
-            .field("protocol", &self.protocol)
-            .field("rssi", &self.rssi)
             .finish()
     }
 }
@@ -116,7 +112,6 @@ pub fn frame_id(p: &[u8]) -> Option<u16> {
 pub struct HandshakeReply {
     pub status: u8,
     pub protocol: u16,
-    pub ogg: bool,
 }
 
 pub fn parse_handshake_reply(p: &[u8]) -> Option<HandshakeReply> {
@@ -124,7 +119,6 @@ pub fn parse_handshake_reply(p: &[u8]) -> Option<HandshakeReply> {
     Some(HandshakeReply {
         status: *p.get(3)?,
         protocol: u16le(p, 4)?,
-        ogg: *p.get(11)? == 1,
     })
 }
 
@@ -226,8 +220,6 @@ mod tests {
         let a = Advert {
             id: "x".into(),
             serial: "8810b50319526726".into(),
-            protocol: 20,
-            rssi: -40,
         };
         let dbg = format!("{a:?}");
         assert!(dbg.contains("…6726") && !dbg.contains("8810b503"), "{dbg}");
@@ -251,14 +243,14 @@ mod tests {
         assert_eq!(&d[..3], &[1, 28, 0]);
         assert_eq!(&d[3..], &[1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0]);
 
-        // Handshake reply: status @3, protocol @4, ogg flag @11.
+        // Handshake reply: status @3, protocol @4.
         let mut r = vec![1, 1, 0, 0, 20, 0, 0, 0, 1, 0, 0, 1];
         let hr = parse_handshake_reply(&r).unwrap();
-        assert_eq!((hr.status, hr.protocol, hr.ogg), (0, 20, true));
+        assert_eq!((hr.status, hr.protocol), (0, 20));
         assert_eq!(reply_cmd(&r), Some(1));
         r[3] = 5;
         assert_eq!(parse_handshake_reply(&r).unwrap().status, 5);
-        assert!(parse_handshake_reply(&r[..11]).is_none());
+        assert!(parse_handshake_reply(&r[..5]).is_none());
 
         // List page: total @7, page @9, entries from 11, 10 B each.
         let mut p = vec![1, 26, 0, 0, 0, 0, 0, 3, 0, 1, 0];

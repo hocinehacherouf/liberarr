@@ -107,14 +107,14 @@ fn granule(page: &[u8]) -> i64 {
 /// `OpusHead` + `OpusTags` pages, then `pages` renumbered from 2 with the last one marked end of
 /// stream, their granule positions moved back by `shift` so the part plays from 0 like a file of its
 /// own: a provider then times its segments from the part start, whatever it reads.
-fn build_part(headers: &[&[u8]], pages: &[&[u8]], shift: i64) -> Vec<u8> {
+fn build_part(headers: &[&[u8]], pages: &[&[u8]], shift: i64) -> Option<Vec<u8>> {
     let mut out = headers.concat();
     for (i, p) in pages.iter().enumerate() {
         let mut p = p.to_vec();
         let g = granule(&p);
         // -1 means no packet ends on this page: keep it.
         if g >= 0 {
-            p[6..14].copy_from_slice(&(g - shift).to_le_bytes());
+            p[6..14].copy_from_slice(&g.checked_sub(shift)?.to_le_bytes());
         }
         p[18..22].copy_from_slice(&(2 + i as u32).to_le_bytes());
         if i + 1 == pages.len() {
@@ -124,7 +124,7 @@ fn build_part(headers: &[&[u8]], pages: &[&[u8]], shift: i64) -> Vec<u8> {
         p[22..26].copy_from_slice(&crc.to_le_bytes());
         out.extend(p);
     }
-    out
+    Some(out)
 }
 
 /// Splits Ogg Opus at page boundaries into parts of at most `max_bytes`, each with its own headers.
@@ -176,7 +176,10 @@ pub fn split_ogg(data: &[u8], max_bytes: usize) -> Result<Vec<(Vec<u8>, f64)>> {
             let (true, Some(g)) = (p[5] & 1 == 0, prev) else {
                 return Err(bad("no valid cut point"));
             };
-            parts.push((build_part(&headers, &cur, shift), start));
+            parts.push((
+                build_part(&headers, &cur, shift).ok_or_else(|| bad("granule"))?,
+                start,
+            ));
             // The part keeps the same OpusHead, so its decoder drops `pre_skip` samples at the start
             // (about 6 ms at each cut): negligible for transcript timestamps.
             (cur, cur_len, start, shift) = (Vec::new(), header_len, seconds(g), g - pre_skip);
@@ -185,7 +188,10 @@ pub fn split_ogg(data: &[u8], max_bytes: usize) -> Result<Vec<(Vec<u8>, f64)>> {
         cur_len += p.len();
         prev = Some(granule(p)).filter(|g| *g >= 0);
     }
-    parts.push((build_part(&headers, &cur, shift), start));
+    parts.push((
+        build_part(&headers, &cur, shift).ok_or_else(|| bad("granule"))?,
+        start,
+    ));
     Ok(parts)
 }
 
@@ -307,6 +313,21 @@ pub(crate) mod tests {
         }
         // Small enough input is returned whole.
         assert_eq!(split_ogg(&data, data.len()).unwrap(), [(data, 0.0)]);
+    }
+
+    #[test]
+    fn huge_granule_is_refused_not_overflowed() {
+        // Low granules first (shift goes negative at the cut), then one near i64::MAX.
+        let mut head = b"OpusHead\x01\x01".to_vec();
+        head.extend_from_slice(&(PRE_SKIP as u16).to_le_bytes());
+        head.extend_from_slice(&[0; 7]);
+        let mut data = [page(0, &head), page(1, b"OpusTags")].concat();
+        for (n, g) in [100, 200, i64::MAX, i64::MAX].into_iter().enumerate() {
+            data.extend(page_at(2 + n as u32, g, &[1; 100]));
+        }
+        let headers = page(0, &[0; 19]).len() + page(1, b"OpusTags").len();
+        let max = headers + 2 * page(2, &[0; 100]).len();
+        assert!(matches!(split_ogg(&data, max), Err(Error::Unsupported(_))));
     }
 
     /// The same page with another stream serial (CRC recomputed).

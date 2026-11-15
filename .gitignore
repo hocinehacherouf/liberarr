@@ -6,8 +6,8 @@ graphify-out/
 
 # Local state and secrets
 .env
-config/
-data/
+/config/
+/data/
 
 # Rust
 /target

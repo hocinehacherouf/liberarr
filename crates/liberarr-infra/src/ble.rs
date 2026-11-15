@@ -77,7 +77,7 @@ impl BtleScanner {
                 let Ok(Some(props)) = p.properties().await else {
                     continue;
                 };
-                let Some((serial, protocol)) = props
+                let Some((serial, _)) = props
                     .manufacturer_data
                     .get(&MANUFACTURER_ID)
                     .and_then(|m| proto::parse_advert(m))
@@ -85,16 +85,7 @@ impl BtleScanner {
                     continue;
                 };
                 let id = p.id().to_string();
-                let rssi = props.rssi.unwrap_or(0);
-                seen.insert(
-                    id.clone(),
-                    Advert {
-                        id,
-                        serial,
-                        protocol,
-                        rssi,
-                    },
-                );
+                seen.insert(id.clone(), Advert { id, serial });
             }
             if Instant::now() >= deadline {
                 return Ok(seen.into_values().collect());

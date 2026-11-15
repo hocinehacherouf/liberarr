@@ -6,7 +6,7 @@ use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-const TIMEOUT: Duration = Duration::from_secs(180);
+const TIMEOUT: Duration = Duration::from_secs(300);
 
 pub struct ClaudeCli {
     program: String,

@@ -145,10 +145,6 @@ pub async fn run(app: &App, no_process: bool) -> Outcome {
         // Once, before any claim: requeues jobs of a dead process and marks this one as a worker.
         app.db.reset_stale().await?;
     }
-    if keys(&app.cfg).load()?.is_empty() {
-        eprintln!("{}", t!("pull.no_device_linked"));
-        return Ok(ExitCode::from(2));
-    }
     eprintln!("{}", t!("pull.searching"));
     let Some(report) = pull(app, Arc::new(print_transfer)).await? else {
         eprintln!("{}", t!("pull.no_device_linked"));
