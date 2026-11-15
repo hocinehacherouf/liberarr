@@ -13,7 +13,7 @@ liberarr-infra = { workspace = true }
 liberarr-web = { workspace = true }
 clap = { workspace = true }
 jiff = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "io-std", "io-util"] }
 axum = { workspace = true }
 # `init`: generated secrets, and hidden input for keys and the Plaud token.
 getrandom = { workspace = true }
@@ -23,7 +23,5 @@ rust-i18n = { workspace = true }
 # `liberarr tui`: full-screen terminal UI (crossterm backend) and its transition effects.
 ratatui = { workspace = true }
 tachyonfx = { workspace = true }
-
-[dev-dependencies]
-# Builds the mock provider's chat reply in the end-to-end test.
+# `liberarr mcp`: JSON-RPC messages of the MCP server.
 serde_json = { workspace = true }

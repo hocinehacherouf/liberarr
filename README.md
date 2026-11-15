@@ -79,6 +79,7 @@ liberarr serve   # or the web UI on http://127.0.0.1:8484
 - [Configuration](docs/configuration.md): `LIBERARR_HOME`, the `.env` file, languages
 - [AI providers and costs](docs/ai-providers.md)
 - [Privacy](docs/privacy.md): what leaves your machine
+- [AI agents (MCP)](docs/agents.md): let your agent read your recordings
 - [Troubleshooting](docs/troubleshooting.md)
 - [FAQ](docs/faq.md), including how to keep the Plaud app alongside
 - [Releases and support](docs/releases.md): version numbers, your data across updates

@@ -57,6 +57,7 @@ enum Cmd {
         #[arg(long, default_value_t = 8484)]
         port: u16,
     },
+    Mcp,
     Status,
     Tui,
 }
@@ -163,6 +164,7 @@ fn run(cmd: Cmd) -> commands::Outcome {
             Cmd::Process { files } => commands::process::run(&app, &files).await,
             Cmd::Rerun { id, step } => commands::rerun::run(&app, id, step.as_deref()).await,
             Cmd::Serve { host, port } => commands::serve::run(app, host, port).await,
+            Cmd::Mcp => commands::mcp::run(&app).await,
             Cmd::Status => commands::status::run(&app).await,
             Cmd::Init { .. } | Cmd::Link { .. } | Cmd::Tui => unreachable!("handled above"),
         }
