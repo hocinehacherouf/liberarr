@@ -1,5 +1,6 @@
 //! One module per CLI command. Output is for the owner, translated (`locales/`); it never shows a token, a key,
 //! a full serial, a transcript or a summary.
+pub mod backup;
 pub mod init;
 pub mod link;
 pub mod process;

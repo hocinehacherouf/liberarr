@@ -42,7 +42,7 @@ Yes, outside the `%% liberarr:start %%` / `%% liberarr:end %%` markers. Liberarr
 One admin user for now.
 
 **Where are my data, and how do I back them up?**
-In `LIBERARR_HOME` (default `~/.liberarr`). Back up that folder, `.env` included (without it, the stored device keys cannot be read). Stop `serve` and `tui` first for a consistent copy of the database.
+In `LIBERARR_HOME` (default `~/.liberarr`). `liberarr backup <folder>` copies it safely, even while Liberarr runs; keep the `.env` separately. See [Backup and restore](backup.md).
 
 **How do I get help on a command?**
 `liberarr --help` and `liberarr <command> --help`, in English or French.

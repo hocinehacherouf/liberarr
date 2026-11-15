@@ -18,6 +18,8 @@
     "back": "← Enregistrements",
     "untitled": "Enregistrement {{id}}",
     "empty": "Aucun enregistrement pour le moment.",
+    "searchByTitle": "Rechercher des enregistrements par titre",
+    "noMatches": "Aucun enregistrement ne correspond à votre recherche.",
     "loadError": "Impossible de charger les enregistrements.",
     "notFound": "Enregistrement introuvable.",
     "processing": "Traitement en cours…",

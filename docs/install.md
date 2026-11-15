@@ -13,7 +13,27 @@ Liberarr is one binary. Nothing else is needed to run it.
 
 Linux builds need glibc 2.35 or newer (Ubuntu 22.04, Debian 12) and use the host's BlueZ service for Bluetooth (present on desktop distributions); `libdbus` is linked dynamically. Windows is not supported.
 
-## Steps
+## Install script
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/hocinehacherouf/liberarr/releases/latest/download/install.sh | sh
+```
+
+The script picks the archive for your system, checks its SHA-256 and puts `liberarr` in `~/.local/bin`. When the [GitHub CLI](https://cli.github.com) is installed and signed in, it also checks the archive's attestation (built by this repository's release workflow); otherwise it prints the command to check it by hand. It stops without installing anything on an unknown system, a failed download, a checksum mismatch or a failed attestation check. To install a given version, set `LIBERARR_VERSION`:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/hocinehacherouf/liberarr/releases/latest/download/install.sh | LIBERARR_VERSION=0.2.0 sh
+```
+
+## Homebrew (from the first release)
+
+```sh
+brew install hocinehacherouf/tap/liberarr
+```
+
+Works on macOS and Linux. Installing by this full name trusts only the `liberarr` formula of the tap.
+
+## Manual steps
 
 Download `liberarr-<target>.tar.gz` and its `.sha256` file from the [releases page](https://github.com/hocinehacherouf/liberarr/releases), then:
 
@@ -31,11 +51,11 @@ On macOS, the first `link` or `pull` asks for Bluetooth access for your terminal
 
 ## Update
 
-Replace the binary with the new one, the same way. Your data in `~/.liberarr` is kept.
+`brew upgrade liberarr`, or run the install script again, or replace the binary the same way. Your data in `~/.liberarr` is kept.
 
 ## Uninstall
 
-Delete the binary. Your recordings, transcripts and settings stay in `~/.liberarr` (or `LIBERARR_HOME`) until you delete that folder.
+`brew uninstall liberarr`, or delete `~/.local/bin/liberarr`. Your recordings, transcripts and settings stay in `~/.liberarr` (or `LIBERARR_HOME`) until you delete that folder.
 
 ## Container (web UI)
 

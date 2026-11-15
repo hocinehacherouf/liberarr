@@ -40,6 +40,7 @@ The README demo is recorded from this data with [VHS](https://github.com/charmbr
 - User-facing text goes through the translation keys, in English and French.
 - Add a test only for critical behaviour (data loss, security, parsing untrusted input, the core pipeline).
 - New dependencies: explain why in the pull request; versions are pinned exactly.
+- The `rust`, `web` and `zizmor` CI jobs only reach the hosts in their Harden-Runner `allowed-endpoints`. If a change needs a new host, the job fails: the StepSecurity insights link in the Harden-Runner step's log (and the agent log in its post step) shows the blocked call, and the pull request adds that host to the job's list.
 - Pull requests are squash-merged: the title and description become the commit message, so write them carefully.
 
 By contributing, you agree that your contribution is licensed under the [MIT License](LICENSE) and you follow the [Code of Conduct](CODE_OF_CONDUCT.md).

@@ -5,7 +5,7 @@ mod schema;
 
 use liberarr_core::{Error, Result};
 use rusqlite::types::Type;
-use rusqlite::{Connection, Transaction, TransactionBehavior};
+use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 use std::fs::{File, OpenOptions, Permissions};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -82,6 +82,37 @@ impl Db {
         .await
         .map_err(storage)?
         .map_err(storage)
+    }
+
+    /// Writes a consistent copy of the database to `dest`, a new 0600 file, while other
+    /// connections keep writing (`VACUUM INTO`), then checks it. The copy is one file, no `-wal`.
+    pub fn snapshot(&self, dest: &Path) -> Result<()> {
+        let target = dest
+            .to_str()
+            .ok_or_else(|| Error::Storage("backup path is not valid UTF-8".into()))?;
+        // Created empty first so SQLite never creates the copy with the umask's mode.
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(dest)
+            .map_err(storage)?;
+        self.conn
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .execute("VACUUM INTO ?1", [target])
+            .map_err(storage)?;
+        let copy =
+            Connection::open_with_flags(dest, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(storage)?;
+        let check: String = copy
+            .query_row("PRAGMA integrity_check", [], |r| r.get(0))
+            .map_err(storage)?;
+        if check != "ok" {
+            return Err(Error::Storage(
+                "the database copy failed its integrity check".into(),
+            ));
+        }
+        Ok(())
     }
 
     #[cfg(test)]
