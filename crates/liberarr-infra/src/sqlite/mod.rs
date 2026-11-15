@@ -376,6 +376,47 @@ mod tests {
         assert!(!stored.actions[0].done && stored.actions[1].done);
     }
 
+    #[tokio::test]
+    async fn counts_open_actions_over_all_recordings() {
+        use liberarr_core::summaries::{Action, MeetingSummary, SummaryRepo};
+
+        let t = TempDb::new("open_actions");
+        let db = Db::open(&t.path()).unwrap();
+        assert_eq!(db.open_actions().await.unwrap(), 0);
+        let action = |text: &str, done| Action {
+            action: text.into(),
+            owner: None,
+            due: None,
+            start: None,
+            done,
+        };
+        let summary = |actions| MeetingSummary {
+            title: "t".into(),
+            summary_md: "s".into(),
+            mindmap: "mindmap\n  root".into(),
+            actions,
+        };
+        let a = db.add(new_rec("h1")).await.unwrap();
+        let b = db.add(new_rec("h2")).await.unwrap();
+        db.add(new_rec("h3")).await.unwrap(); // no summary
+        let both = summary(vec![
+            action("a", true),
+            action("b", false),
+            action("c", false),
+        ]);
+        SummaryRepo::save(&db, a, &both).await.unwrap();
+        SummaryRepo::save(
+            &db,
+            b,
+            &summary(vec![action("d", false), action("e", true)]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(db.open_actions().await.unwrap(), 3);
+        assert!(db.set_action_done(a, 1, "b", true).await.unwrap());
+        assert_eq!(db.open_actions().await.unwrap(), 2);
+    }
+
     /// Issue #88: transcripts must not be readable by other local users.
     #[tokio::test]
     async fn db_files_are_owner_only() {

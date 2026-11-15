@@ -271,6 +271,19 @@ impl SummaryRepo for Db {
         })
         .await
     }
+
+    async fn open_actions(&self) -> Result<u32> {
+        // `done` is absent or false on an open action, so `IS NOT 1` counts both.
+        self.run(|c| {
+            c.query_row(
+                "SELECT COUNT(*) FROM summaries s, json_each(s.actions) a
+                 WHERE json_extract(a.value, '$.done') IS NOT 1",
+                [],
+                |r| r.get(0),
+            )
+        })
+        .await
+    }
 }
 
 impl DeviceLedger for Db {

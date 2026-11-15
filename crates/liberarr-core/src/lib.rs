@@ -212,6 +212,14 @@ mod fakes {
                 .filter(|a| a.action == action);
             Ok(a.map(|a| a.done = done).is_some())
         }
+        async fn open_actions(&self) -> Result<u32> {
+            let map = self.0.borrow();
+            Ok(map
+                .values()
+                .flat_map(|s| &s.actions)
+                .map(|a| u32::from(!a.done))
+                .sum())
+        }
     }
 
     /// Replies with the scripted answers in order and counts calls.

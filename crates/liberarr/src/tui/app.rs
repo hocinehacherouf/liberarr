@@ -11,7 +11,7 @@ use crate::container::{self, App};
 use liberarr_core::device::ports::KeyStore;
 use liberarr_core::jobs::{JobInfo, JobQueue, Rerun, STEPS, rerun, run_job_once};
 use liberarr_core::recordings::{RecordingItem, RecordingStatus};
-use liberarr_core::summaries::MeetingSummary;
+use liberarr_core::summaries::{MeetingSummary, SummaryRepo};
 use liberarr_core::transcription::Transcript;
 use liberarr_web::Backend;
 use ratatui::DefaultTerminal;
@@ -120,6 +120,7 @@ struct Ui {
     /// A device is linked (read once, at start).
     device: bool,
     last_pull: Option<jiff::Timestamp>,
+    open_actions: usize,
     fx: EffectManager<Fx>,
     /// Effects to start at the next frame: the whole screen, the preview content, the row of
     /// the recording that just finished.
@@ -201,6 +202,7 @@ impl Ui {
             })),
             worker_error: Arc::new(Mutex::new(None)),
             last_pull: None,
+            open_actions: 0,
             fx: EffectManager::default(),
             reveal: true,
             swap: false,
@@ -256,6 +258,7 @@ impl Ui {
         }
         self.sync(true)?;
         self.last_pull = self.rt.block_on(self.app.db.last_pull())?;
+        self.open_actions = self.rt.block_on(SummaryRepo::open_actions(&self.app.db))? as usize;
         let error = lock(&self.worker_error).take();
         if let Some(e) = error {
             self.toast(

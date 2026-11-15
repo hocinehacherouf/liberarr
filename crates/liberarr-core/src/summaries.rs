@@ -124,6 +124,8 @@ pub trait SummaryRepo {
         action: &str,
         done: bool,
     ) -> Result<bool>;
+    /// Number of actions not ticked yet, over all recordings.
+    async fn open_actions(&self) -> Result<u32>;
 }
 
 pub struct Summarize<'a, T, L, S> {

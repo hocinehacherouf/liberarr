@@ -413,6 +413,11 @@ impl Ui {
                 failed.to_string(),
                 hot(failed, theme::error()),
             ),
+            (
+                t!("tui.tile_actions"),
+                self.open_actions.to_string(),
+                hot(self.open_actions, theme::bold()),
+            ),
             (t!("tui.tile_audio"), audio, theme::bold()),
             (t!("tui.tile_last_pull"), last_pull, theme::bold()),
         ];
