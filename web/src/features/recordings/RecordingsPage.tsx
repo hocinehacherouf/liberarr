@@ -1,48 +1,51 @@
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
+import { Loading } from '../../shared/Loading'
 import { formatDate, formatTimestamp } from '../../shared/time'
-import { useRecordings, type Status } from './api'
-
-const BADGE: Record<Status, string> = {
-  processing: 'bg-sky-900 text-sky-100',
-  failed: 'bg-red-900 text-red-100',
-  done: 'bg-emerald-900 text-emerald-100',
-}
+import { useRecordings } from './api'
+import { StatusBadge } from './StatusBadge'
 
 export function RecordingsPage() {
   const { t } = useTranslation()
   const { data, isLoading, isError } = useRecordings()
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8">
-      <h1 className="mb-6 text-2xl font-semibold">{t('recordings.title')}</h1>
-      {isLoading && <p className="text-zinc-400">{t('common.loading')}</p>}
+    <main className="mx-auto max-w-5xl px-4 py-6 sm:py-8">
+      <h1 className="mb-4 flex items-baseline gap-2 text-2xl font-semibold tracking-tight">
+        {t('recordings.title')}
+        {data && data.length > 0 && <span className="text-base font-normal text-muted tabular-nums">{data.length}</span>}
+      </h1>
+      {isLoading && <Loading />}
       {isError && (
-        <p role="alert" className="text-red-400">
+        <p role="alert" className="rounded-lg border border-err/40 bg-err/10 p-4 text-sm text-err">
           {t('recordings.loadError')}
         </p>
       )}
-      {data?.length === 0 && <p className="text-zinc-400">{t('recordings.empty')}</p>}
+      {data?.length === 0 && (
+        <p className="rounded-xl border border-dashed border-line bg-surface p-8 text-center text-muted">
+          {t('recordings.empty')}
+        </p>
+      )}
       {data && data.length > 0 && (
-        <ul className="divide-y divide-zinc-800 rounded-xl border border-zinc-800">
+        <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
           {data.map((r) => (
             <li key={r.id}>
               <Link
                 to={`/recordings/${r.id}`}
-                className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 hover:bg-zinc-900"
+                className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1 px-4 py-3 hover:bg-accent/5 focus-visible:-outline-offset-2 sm:grid-cols-[1fr_auto_auto_auto]"
               >
-                <span className="min-w-0 flex-1 truncate">{r.title ?? t('recordings.untitled', { id: r.id })}</span>
-                <time dateTime={r.created_at} className="text-sm text-zinc-400">
-                  {formatDate(r.created_at)}
-                </time>
-                <span className="w-16 text-right font-mono text-sm text-zinc-300">
-                  {r.duration_s != null ? formatTimestamp(r.duration_s) : '—'}
+                <span className="col-span-2 truncate font-medium sm:col-span-1">
+                  {r.title ?? t('recordings.untitled', { id: r.id })}
                 </span>
-                {r.no_speech ? (
-                  <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-200">{t('recordings.noSpeech')}</span>
-                ) : (
-                  <span className={`rounded-full px-2 py-0.5 text-xs ${BADGE[r.status]}`}>{t(`recordings.status.${r.status}`)}</span>
-                )}
+                <span className="flex gap-3 text-sm text-muted sm:contents">
+                  <time dateTime={r.created_at}>{formatDate(r.created_at)}</time>
+                  <span className="font-mono tabular-nums sm:w-14 sm:text-right">
+                    {r.duration_s != null ? formatTimestamp(r.duration_s) : '—'}
+                  </span>
+                </span>
+                <span className="justify-self-end">
+                  <StatusBadge recording={r} />
+                </span>
               </Link>
             </li>
           ))}

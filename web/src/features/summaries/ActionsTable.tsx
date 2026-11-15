@@ -13,11 +13,11 @@ export function ActionsTable({ recordingId, actions, onSeek }: Props) {
   const { t } = useTranslation()
   const toggle = useToggleAction(recordingId)
 
-  if (!actions.length) return <p className="text-sm text-zinc-400">{t('summaries.actions.none')}</p>
+  if (!actions.length) return <p className="text-sm text-muted">{t('summaries.actions.none')}</p>
   return (
-    <div className="overflow-x-auto">
+    <div className="-mx-4 overflow-x-auto px-4 sm:-mx-5 sm:px-5">
       {toggle.isError && (
-        <p role="alert" className="mb-2 text-sm text-red-400">
+        <p role="alert" className="mb-2 text-sm text-err">
           {t(
             toggle.error instanceof ApiError && toggle.error.status === 409
               ? 'summaries.actions.stale'
@@ -26,33 +26,34 @@ export function ActionsTable({ recordingId, actions, onSeek }: Props) {
         </p>
       )}
       <table className="w-full text-sm">
-        <thead className="text-left text-zinc-300">
+        <thead className="text-left text-xs text-muted">
           <tr>
-            <th className="p-2">{t('summaries.actions.done')}</th>
-            <th className="p-2">{t('summaries.actions.action')}</th>
-            <th className="p-2">{t('summaries.actions.owner')}</th>
-            <th className="p-2">{t('summaries.actions.due')}</th>
-            <th className="p-2">{t('summaries.actions.moment')}</th>
+            <th className="px-2 pb-2 font-medium">{t('summaries.actions.done')}</th>
+            <th className="px-2 pb-2 font-medium">{t('summaries.actions.action')}</th>
+            <th className="px-2 pb-2 font-medium">{t('summaries.actions.owner')}</th>
+            <th className="px-2 pb-2 font-medium">{t('summaries.actions.due')}</th>
+            <th className="px-2 pb-2 font-medium">{t('summaries.actions.moment')}</th>
           </tr>
         </thead>
         <tbody>
           {actions.map((a, index) => (
-            <tr key={index} className="border-t border-zinc-800">
+            <tr key={index} className="border-t border-line align-top">
               <td className="p-2">
                 <input
                   type="checkbox"
+                  className="size-4 align-middle"
                   aria-label={t('summaries.actions.markDone', { action: a.action })}
                   checked={a.done}
                   onChange={(e) => toggle.mutate({ index, action: a.action, done: e.target.checked })}
                 />
               </td>
-              <td className={`p-2 ${a.done ? 'text-zinc-400 line-through' : ''}`}>{a.action}</td>
-              <td className="p-2">{a.owner ?? '—'}</td>
-              <td className="p-2">{a.due ?? '—'}</td>
+              <td className={`min-w-48 p-2 ${a.done ? 'text-muted line-through' : ''}`}>{a.action}</td>
+              <td className="p-2 whitespace-nowrap">{a.owner ?? '—'}</td>
+              <td className="p-2 whitespace-nowrap text-muted">{a.due ?? '—'}</td>
               <td className="p-2">
                 {a.start != null && (
                   <button
-                    className="font-mono text-xs text-emerald-400 hover:underline"
+                    className="rounded border border-accent/40 px-1.5 py-0.5 font-mono text-xs text-accent tabular-nums hover:bg-accent/10"
                     onClick={() => onSeek(a.start as number)}
                   >
                     {formatTimestamp(a.start)}

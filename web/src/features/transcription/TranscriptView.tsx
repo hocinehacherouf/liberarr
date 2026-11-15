@@ -16,10 +16,10 @@ const Row = memo(function Row({ s, active, onSeek }: { s: Segment; active: boole
       <button
         onClick={() => onSeek(s.start)}
         aria-current={active || undefined}
-        className={`w-full rounded px-2 py-1 text-left hover:bg-zinc-800 ${active ? 'bg-emerald-950 text-emerald-100' : ''}`}
+        className={`flex w-full gap-3 rounded-md border-l-2 px-2 py-1.5 text-left leading-relaxed hover:bg-accent/5 ${active ? 'border-accent bg-accent/10' : 'border-transparent'}`}
       >
-        <span className="mr-2 font-mono text-xs text-zinc-400">{formatTimestamp(s.start)}</span>
-        {s.text}
+        <span className="pt-0.5 font-mono text-xs text-accent tabular-nums">{formatTimestamp(s.start)}</span>
+        <span>{s.text}</span>
       </button>
     </li>
   )
@@ -40,13 +40,13 @@ export function TranscriptView({ transcript, audio, onSeek }: Props) {
   if (!transcript.has_timestamps)
     return (
       <div className="space-y-3">
-        <p className="text-sm text-zinc-400">{t('transcription.noTimestamps')}</p>
-        <p className="whitespace-pre-wrap">{transcript.text}</p>
+        <p className="text-sm text-muted">{t('transcription.noTimestamps')}</p>
+        <p className="leading-relaxed whitespace-pre-wrap">{transcript.text}</p>
       </div>
     )
 
   return (
-    <ol className="space-y-1">
+    <ol className="-mx-2 space-y-0.5">
       {transcript.segments.map((s, i) => (
         <Row key={i} s={s} active={time >= s.start && time < s.end} onSeek={onSeek} />
       ))}

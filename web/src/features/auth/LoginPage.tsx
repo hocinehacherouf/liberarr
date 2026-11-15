@@ -3,6 +3,7 @@ import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Navigate } from 'react-router'
 import { ApiError } from '../../shared/api'
+import { Logo } from '../../shared/Logo'
 import { useLogin, useMe } from './api'
 
 function message(e: Error, t: TFunction): string {
@@ -24,13 +25,16 @@ export function LoginPage() {
     e.preventDefault()
     login.mutate({ username, password })
   }
-  const field = 'mt-1 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 focus:border-emerald-500'
+  const field = 'mt-1 w-full rounded-md border border-line bg-canvas px-3 py-2 text-fg focus:border-accent'
 
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-4">
-      <h1 className="mb-6 text-2xl font-semibold">Liberarr</h1>
-      <form onSubmit={submit} className="space-y-4">
-        <label className="block text-sm text-zinc-300">
+      <h1 className="mb-6 flex justify-center text-3xl">
+        <Logo />
+      </h1>
+      <form onSubmit={submit} className="space-y-4 overflow-hidden rounded-xl border border-line bg-surface p-6 shadow-sm">
+        <div aria-hidden="true" className="bg-brand -mx-6 -mt-6 mb-6 h-1" />
+        <label className="block text-sm font-medium text-muted">
           {t('auth.username')}
           <input
             className={field}
@@ -40,7 +44,7 @@ export function LoginPage() {
             onChange={(e) => setUsername(e.target.value)}
           />
         </label>
-        <label className="block text-sm text-zinc-300">
+        <label className="block text-sm font-medium text-muted">
           {t('auth.password')}
           <input
             className={field}
@@ -52,14 +56,15 @@ export function LoginPage() {
           />
         </label>
         {login.isError && (
-          <p role="alert" className="text-sm text-red-400">
+          <p role="alert" className="flex gap-2 text-sm text-err">
+            <span aria-hidden="true">▲</span>
             {message(login.error, t)}
           </p>
         )}
         <button
           type="submit"
           disabled={login.isPending}
-          className="w-full rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-60"
+          className="bg-brand-strong w-full rounded-md px-3 py-2 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-60"
         >
           {t('auth.signIn')}
         </button>
