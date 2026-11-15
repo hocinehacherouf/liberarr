@@ -56,7 +56,13 @@ Liberarr is an independent project, **not affiliated with, endorsed by or sponso
 
 ## Install
 
-No release is published yet: for now, build from source with [docs/development.md](docs/development.md). Once a release is out, download the archive for your platform from the [releases page](https://github.com/hocinehacherouf/liberarr/releases), check it and put `liberarr` in your `PATH`: see [docs/install.md](docs/install.md). macOS (Apple silicon, Intel) and Linux (x86-64, ARM64).
+No release is published yet: for now, build from source with [docs/development.md](docs/development.md). Once a release is out:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/hocinehacherouf/liberarr/releases/latest/download/install.sh | sh
+```
+
+Or with Homebrew (from the first release): `brew install hocinehacherouf/tap/liberarr`. Manual steps and checks: [docs/install.md](docs/install.md). macOS (Apple silicon, Intel) and Linux (x86-64, ARM64).
 
 ## Quick start
 
