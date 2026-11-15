@@ -37,4 +37,61 @@ Replace the binary with the new one, the same way. Your data in `~/.liberarr` is
 
 Delete the binary. Your recordings, transcripts and settings stay in `~/.liberarr` (or `LIBERARR_HOME`) until you delete that folder.
 
+## Container (web UI)
+
+From the first release, the image `ghcr.io/hocinehacherouf/liberarr` (Linux, x86-64 and ARM64) runs `liberarr serve`. It runs as a non-root user (uid 1000) and keeps everything in the `/data` volume (`LIBERARR_HOME`). The image is attested: `gh attestation verify oci://ghcr.io/hocinehacherouf/liberarr:<version> --repo hocinehacherouf/liberarr`.
+
+First start: write your AI provider settings in a file, for example `providers.env` (see [Configuration](configuration.md) for the variables):
+
+```sh
+LIBERARR_TRANSCRIBE_PROVIDER=mistral
+LIBERARR_TRANSCRIBE_API_KEY=your-key
+LIBERARR_LLM_PROVIDER=mistral
+LIBERARR_LLM_API_KEY=your-key
+LIBERARR_LLM_MODEL=mistral-small-2603
+LIBERARR_CONTENT_LANGUAGE=en
+```
+
+Then create the `.env` in the volume, and start the web UI:
+
+```sh
+docker run --rm -v liberarr:/data --env-file providers.env ghcr.io/hocinehacherouf/liberarr init --non-interactive
+docker run -d --init --name liberarr --restart unless-stopped -p 127.0.0.1:8484:8484 -v liberarr:/data ghcr.io/hocinehacherouf/liberarr
+```
+
+`init` prints the web UI password once (user `admin`). The keys are now in `/data/.env`: delete `providers.env`. Open http://127.0.0.1:8484.
+
+Or with Docker Compose, this `compose.yaml`:
+
+```yaml
+services:
+  liberarr:
+    image: ghcr.io/hocinehacherouf/liberarr:latest
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8484:8484"
+    volumes:
+      - liberarr:/data
+
+volumes:
+  liberarr:
+```
+
+```sh
+docker compose run --rm --env-from-file providers.env liberarr init --non-interactive
+docker compose up -d
+```
+
+**Keep the port private.** Inside the container, `serve` listens on all interfaces, so the check that refuses foreign `Host` names on a loopback address is off. Publishing on `127.0.0.1` (as above) keeps the web UI reachable from this machine only. `-p 8484:8484` makes it reachable from your network, behind the login only: put it behind an HTTPS reverse proxy and set `LIBERARR_COOKIE_SECURE=true` in `/data/.env`.
+
+**A bind mount instead of a volume** (`-v /some/folder:/data`) must be writable by uid 1000: `sudo chown 1000:1000 /some/folder`. Keep it on a local disk (see [Configuration](configuration.md)).
+
+**Bluetooth.** The container is for the web UI and for processing files. Pulling from the device inside it:
+
+- Linux: possible in principle through the host's BlueZ, by sharing its D-Bus socket (`-v /run/dbus:/run/dbus:ro`). Untested; `pull` and `link` from the host binary are the supported way.
+- macOS: not possible. Docker Desktop runs containers in a Linux virtual machine without access to the Mac's Bluetooth.
+
+To update: `docker pull` the new image (or `docker compose pull`), then recreate the container. Your data stays in the volume.
+
 Next: [First run](first-run.md).
