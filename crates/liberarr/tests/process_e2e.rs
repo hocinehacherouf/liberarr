@@ -124,7 +124,7 @@ fn patch_action(port: u16, index: usize, action: &str) -> u16 {
     http(
         port,
         &format!(
-            "PATCH /api/recordings/1/actions/{index} HTTP/1.1\r\nHost: localhost\r\nX-Api-Key: {API_KEY}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            "PATCH /api/recordings/1/actions/{index} HTTP/1.1\r\nHost: localhost:{port}\r\nX-Api-Key: {API_KEY}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len()
         ),
     )
@@ -209,7 +209,8 @@ async fn process_e2e() {
         .stdout(Stdio::null())
         .spawn()
         .unwrap();
-    let health = "GET /api/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    let health =
+        &format!("GET /api/health HTTP/1.1\r\nHost: localhost:{port}\r\nConnection: close\r\n\r\n");
     let up = (0..100).any(|_| {
         std::thread::sleep(Duration::from_millis(100));
         http(port, health).is_ok_and(|c| c == 200)

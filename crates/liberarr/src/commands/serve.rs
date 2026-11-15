@@ -44,13 +44,14 @@ pub async fn run(app: App, host: IpAddr, port: u16) -> Outcome {
         auth: Arc::new(Auth::new(auth)),
     };
     let listener = tokio::net::TcpListener::bind((host, port)).await?;
-    println!("{}", t!("serve.listening", addr = listener.local_addr()?));
+    let bind = listener.local_addr()?;
+    println!("{}", t!("serve.listening", addr = bind));
     if !host.is_loopback() {
         println!("{}", t!("serve.network_warning"));
     }
     axum::serve(
         listener,
-        router(state).into_make_service_with_connect_info::<SocketAddr>(),
+        router(state, bind).into_make_service_with_connect_info::<SocketAddr>(),
     )
     .await?;
     Ok(ExitCode::SUCCESS)

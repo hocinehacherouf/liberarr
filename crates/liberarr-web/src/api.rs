@@ -2,6 +2,7 @@
 use crate::{AppState, Backend};
 use axum::Json;
 use axum::extract::{ConnectInfo, Path, Request, State};
+use axum::http::uri::Authority;
 use axum::http::{StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
@@ -297,12 +298,40 @@ pub async fn toggle_action<B: Backend>(
     ))
 }
 
-pub async fn nosniff(mut res: Response) -> Response {
-    res.headers_mut().insert(
+/// Inline styles stay allowed: mermaid puts a `<style>` element inside the mind map SVG.
+const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+    object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+
+pub async fn security_headers(mut res: Response) -> Response {
+    let h = res.headers_mut();
+    h.insert(
         "x-content-type-options",
         "nosniff".parse().expect("static value"),
     );
+    h.insert(
+        header::CONTENT_SECURITY_POLICY,
+        CSP.parse().expect("static value"),
+    );
     res
+}
+
+/// On a loopback bind, only `127.0.0.1`, `localhost` or `[::1]` on the bound port may be named
+/// in `Host`: a DNS-rebinding page cannot reach the API (or burn the login rate limit).
+pub async fn loopback_host_only(State(port): State<u16>, req: Request, next: Next) -> Response {
+    let host = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|h| h.parse::<Authority>().ok());
+    let ok = host.is_some_and(|a| {
+        matches!(a.host(), "127.0.0.1" | "localhost" | "[::1]")
+            && a.port_u16().unwrap_or(80) == port
+    });
+    if ok {
+        next.run(req).await
+    } else {
+        StatusCode::MISDIRECTED_REQUEST.into_response()
+    }
 }
 
 pub async fn no_store(mut res: Response) -> Response {

@@ -30,7 +30,7 @@ With `claude`, transcripts go to Anthropic under your Claude account's privacy s
 
 ## Web UI on the network
 
-`serve` listens on `127.0.0.1:8484` by default: only your machine can reach it. It has one user (`admin`), a login rate limit, and an API key for scripts.
+`serve` listens on `127.0.0.1:8484` by default: only your machine can reach it. It has one user (`admin`), a login rate limit, and an API key for scripts. On a loopback address it answers only requests addressed to `127.0.0.1`, `localhost` or `[::1]` with its port (421 otherwise), which blocks DNS-rebinding pages; a reverse proxy on the same machine must send that `Host`.
 
 To reach it from your LAN or a NAS, pass `--host 0.0.0.0` and put it behind a reverse proxy with HTTPS, or a VPN. Liberarr prints a warning when the UI is reachable from the network. Under HTTPS, set `LIBERARR_COOKIE_SECURE=true`.
 

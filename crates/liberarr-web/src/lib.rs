@@ -16,6 +16,7 @@ use liberarr_core::recordings::{Recording, RecordingItem};
 use liberarr_core::summaries::MeetingSummary;
 use liberarr_core::transcription::Transcript;
 use std::future::Future;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 pub use auth::{Auth, AuthConfig};
@@ -64,7 +65,8 @@ impl<B> Clone for AppState<B> {
 }
 
 /// Serve it with `into_make_service_with_connect_info::<SocketAddr>()` (login rate limit).
-pub fn router<B: Backend>(state: AppState<B>) -> Router {
+/// `bind` is the listening address: on loopback, foreign `Host` headers are refused.
+pub fn router<B: Backend>(state: AppState<B>, bind: SocketAddr) -> Router {
     let open = Router::new()
         .route("/health", get(api::health))
         .route("/auth/login", post(api::login::<B>));
@@ -80,7 +82,7 @@ pub fn router<B: Backend>(state: AppState<B>) -> Router {
             patch(api::toggle_action::<B>),
         )
         .layer(from_fn_with_state(state.clone(), api::require_auth::<B>));
-    Router::new()
+    let app = Router::new()
         .nest(
             "/api",
             open.merge(protected)
@@ -88,8 +90,13 @@ pub fn router<B: Backend>(state: AppState<B>) -> Router {
                 .layer(map_response(api::no_store)),
         )
         .fallback(get(assets::spa))
-        .layer(map_response(api::nosniff))
-        .with_state(state)
+        .layer(map_response(api::security_headers))
+        .with_state(state);
+    if bind.ip().is_loopback() {
+        app.layer(from_fn_with_state(bind.port(), api::loopback_host_only))
+    } else {
+        app
+    }
 }
 
 #[cfg(test)]
@@ -101,7 +108,6 @@ mod tests {
     use liberarr_core::jobs::JobStatus;
     use liberarr_core::recordings::{RecordingStatus, Source};
     use liberarr_core::summaries::Action;
-    use std::net::SocketAddr;
     use std::sync::Mutex;
     use tower::ServiceExt;
 
@@ -189,17 +195,28 @@ mod tests {
         app_with(Fake::default())
     }
 
+    /// Bound on all interfaces: no `Host` check (see `loopback_bind_refuses_foreign_host`).
+    const ANY: SocketAddr =
+        SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 0);
+
     fn app_with(fake: Fake) -> Router {
-        router(AppState::new(
-            fake,
-            AuthConfig {
-                username: "admin".into(),
-                password: "pw".into(),
-                api_key: "key".into(),
-                secret_key: "secret".into(),
-                cookie_secure: false,
-            },
-        ))
+        app_on(fake, ANY)
+    }
+
+    fn app_on(fake: Fake, bind: SocketAddr) -> Router {
+        router(
+            AppState::new(
+                fake,
+                AuthConfig {
+                    username: "admin".into(),
+                    password: "pw".into(),
+                    api_key: "key".into(),
+                    secret_key: "secret".into(),
+                    cookie_secure: false,
+                },
+            ),
+            bind,
+        )
     }
 
     fn req(method: &str, uri: &str, key: Option<&str>, body: &str) -> Request<Body> {
@@ -267,16 +284,19 @@ mod tests {
         };
         assert_eq!(status(&app, with_cookie()).await, StatusCode::OK);
         // Same secret, new admin password: the old session is revoked.
-        let rotated = router(AppState::new(
-            Fake::default(),
-            AuthConfig {
-                username: "admin".into(),
-                password: "changed".into(),
-                api_key: "key".into(),
-                secret_key: "secret".into(),
-                cookie_secure: false,
-            },
-        ));
+        let rotated = router(
+            AppState::new(
+                Fake::default(),
+                AuthConfig {
+                    username: "admin".into(),
+                    password: "changed".into(),
+                    api_key: "key".into(),
+                    secret_key: "secret".into(),
+                    cookie_secure: false,
+                },
+            ),
+            ANY,
+        );
         assert_eq!(
             status(&rotated, with_cookie()).await,
             StatusCode::UNAUTHORIZED
@@ -478,9 +498,42 @@ mod tests {
             .expect("response");
         assert_eq!(res.status(), StatusCode::OK);
         assert_eq!(res.headers()["x-content-type-options"], "nosniff");
+        let csp = res.headers()[header::CONTENT_SECURITY_POLICY]
+            .to_str()
+            .expect("csp");
+        assert!(csp.contains("script-src 'self';") && csp.contains("frame-ancestors 'none'"));
         let body = axum::body::to_bytes(res.into_body(), 1 << 20)
             .await
             .expect("body");
         assert!(String::from_utf8_lossy(&body).contains("<html"));
+    }
+
+    #[tokio::test]
+    async fn loopback_bind_refuses_foreign_host() {
+        let app = app_on(Fake::default(), SocketAddr::from(([127, 0, 0, 1], 7777)));
+        let with_host = |host: Option<&str>| {
+            let mut r = req("GET", "/api/health", None, "");
+            if let Some(h) = host {
+                r.headers_mut()
+                    .insert(header::HOST, h.parse().expect("header"));
+            }
+            r
+        };
+        for host in ["127.0.0.1:7777", "localhost:7777", "[::1]:7777"] {
+            assert_eq!(status(&app, with_host(Some(host))).await, StatusCode::OK);
+        }
+        // A rebound DNS name, the wrong port, or no Host at all.
+        for host in [Some("evil.example:7777"), Some("localhost:8888"), None] {
+            assert_eq!(
+                status(&app, with_host(host)).await,
+                StatusCode::MISDIRECTED_REQUEST
+            );
+        }
+        // Not a loopback bind: any Host is served.
+        let open = app_on(Fake::default(), ANY);
+        assert_eq!(
+            status(&open, with_host(Some("evil.example:7777"))).await,
+            StatusCode::OK
+        );
     }
 }
