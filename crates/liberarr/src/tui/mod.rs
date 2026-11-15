@@ -11,10 +11,14 @@ use prompter::TuiPrompter;
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
 use ratatui::crossterm::execute;
+use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::Span;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType};
 use std::process::ExitCode;
 use std::sync::OnceLock;
+use tachyonfx::pattern::SweepPattern;
+use tachyonfx::{Effect, Interpolation, fx};
 
 /// Smallest usable window; below it a message asks to enlarge it.
 const MIN_WIDTH: u16 = 60;
@@ -120,8 +124,47 @@ mod theme {
             .map(|(i, c)| Span::styled(c.to_string(), brand(i as f32 / last)))
             .collect()
     }
-    /// The color effects fade from: the background of most terminals.
-    pub const FADE: Color = Color::Black;
+}
+
+/// A pane with rounded borders and its title in the border. The focused one has the accent
+/// color, or thick borders when colors are off.
+fn pane(title: Line<'static>, focused: bool) -> Block<'static> {
+    Block::bordered()
+        .border_type(if focused && !colors() {
+            BorderType::Thick
+        } else {
+            BorderType::Rounded
+        })
+        .border_style(theme::border(focused))
+        .title_style(if focused {
+            theme::accent()
+        } else {
+            theme::bold()
+        })
+        .title(title)
+}
+
+/// Key hints: `key what` items separated by three spaces, the keys in bold. The items that
+/// do not fit in `max` columns are left out.
+fn hints(text: &str, max: usize) -> Line<'static> {
+    let mut line = Line::default();
+    for item in text.split("   ") {
+        if line.width() + Line::raw(item).width() + 3 > max {
+            break;
+        }
+        let (key, what) = item.split_once(' ').unwrap_or((item, ""));
+        line.push_span(Span::styled(format!(" {key}"), theme::bold()));
+        line.push_span(Span::styled(format!(" {what}  "), theme::dim()));
+    }
+    line
+}
+
+/// Content appearing from the left. It only hides cells (`coalesce` plays the pattern
+/// backwards): nothing a light theme breaks.
+fn sweep(ms: u32, area: Rect) -> Effect {
+    fx::coalesce((ms, Interpolation::QuadOut))
+        .with_pattern(SweepPattern::right_to_left(24))
+        .with_area(area)
 }
 
 /// Shown on the setup's first screen and on an empty recordings list.

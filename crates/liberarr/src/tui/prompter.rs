@@ -1,18 +1,18 @@
 //! The setup questions (`setup::Prompter`) as full-screen pages: arrow-key menus, masked key
 //! field, spinner while the key is tested. Same questions and rules as the plain CLI.
-use super::{LOGO, MIN_HEIGHT, MIN_WIDTH, motion, spinner, theme};
+use super::{LOGO, MIN_HEIGHT, MIN_WIDTH, hints, motion, pane, spinner, sweep, theme};
 use crate::setup::{Choice, Picked, Prompter};
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::layout::{Constraint, Flex, Layout, Rect};
+use ratatui::layout::{Constraint, Flex, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Padding, Paragraph, Wrap};
+use ratatui::widgets::{Paragraph, Wrap};
 use ratatui::{DefaultTerminal, Frame};
 use rust_i18n::t;
 use std::io::{Error, ErrorKind, Result};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
-use tachyonfx::{EffectManager, Interpolation, fx};
+use tachyonfx::EffectManager;
 
 /// Messages kept under the question (key test results, warnings).
 const LOG_LINES: usize = 4;
@@ -21,6 +21,10 @@ pub struct TuiPrompter<'a> {
     term: &'a mut DefaultTerminal,
     log: Vec<(String, Style)>,
     fx: EffectManager<()>,
+    /// The number of the page in the border; none on the last page.
+    step: Option<usize>,
+    /// The question of that step.
+    asked: String,
 }
 
 /// A one-line text field. `masked` shows one dot per character, never the value.
@@ -90,13 +94,15 @@ fn column(area: Rect, width: u16) -> Rect {
     c
 }
 
-/// Draws a page: logo (when tall enough), question, body, messages, key hints. Returns the
-/// body's area, the region the transition plays on.
+/// Draws a page: one pane with the name and the step in its border, holding the logo (when
+/// tall enough), the question, the body and the messages; the key hints on the last row.
+/// Returns the inside of the pane, the region the transition plays on.
 fn page(
     f: &mut Frame,
+    step: Option<usize>,
     question: &str,
     log: &[(String, Style)],
-    hints: &str,
+    keys: &str,
     body_rows: u16,
     body: impl FnOnce(&mut Frame, Rect),
 ) -> Option<Rect> {
@@ -108,30 +114,8 @@ fn page(
         );
         return None;
     }
-    let tall = area.height >= 30;
-    let header_rows = if tall { 5 } else { 2 };
-    let [header, main, footer] = Layout::vertical([
-        Constraint::Length(header_rows),
-        Constraint::Min(1),
-        Constraint::Length(1),
-    ])
-    .areas(area);
+    let [main, footer] = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(area);
     let col = column(main, 84);
-    if tall {
-        let mut lines: Vec<Line> = vec![Line::raw("")];
-        lines.extend(LOGO.iter().map(|l| Line::styled(*l, theme::accent())));
-        f.render_widget(Paragraph::new(lines), column(header, 84));
-    } else {
-        f.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled("▌liberarr ", theme::accent()),
-                Span::styled(t!("tui.setup").into_owned(), theme::dim()),
-            ])),
-            column(header, 84),
-        );
-    }
-    let q = Paragraph::new(Line::styled(question.to_string(), theme::accent()))
-        .wrap(Wrap { trim: true });
     // Approximate wrapped height (word wrap may need one more row: hence the +1).
     let width = col.width.saturating_sub(4).max(1) as usize;
     let q_rows = (question.chars().count() / width + 1).min(6) as u16;
@@ -139,39 +123,64 @@ fn page(
         .iter()
         .map(|(m, _)| (m.chars().count() / width + 1) as u16)
         .sum();
-    let [card, msgs] = Layout::vertical([
-        Constraint::Length(q_rows + 1 + body_rows + 2),
-        // One row of space above and below the messages.
-        Constraint::Length(log_rows + 2),
-    ])
-    .areas(col);
-    let block = Block::bordered()
-        .border_type(BorderType::Rounded)
-        .border_style(theme::dim())
-        .padding(Padding::horizontal(1));
-    let inner = block.inner(card);
+    // The logo, then a blank row, when the window has the rows for it.
+    let logo_rows = if area.height >= 30 {
+        LOGO.len() as u16 + 1
+    } else {
+        0
+    };
+    // One blank row between the question, the body and the messages.
+    let msg_rows = if log.is_empty() { 0 } else { log_rows + 1 };
+    let card_rows = logo_rows + q_rows + 1 + body_rows + msg_rows + 2;
+    // A fixed top margin, so the pane does not jump from one page to the next; only the free
+    // rows of a short window.
+    let top = (col.height / 6).min(col.height.saturating_sub(card_rows));
+    let [_, card] =
+        Layout::vertical([Constraint::Length(top), Constraint::Length(card_rows)]).areas(col);
+
+    let mut name = vec![Span::raw(" ")];
+    name.extend(theme::gradient("liberarr"));
+    name.push(Span::styled(
+        format!(" · {} ", t!("tui.setup")),
+        theme::dim(),
+    ));
+    let mut block = pane(Line::from(name), true);
+    if let Some(n) = step {
+        let progress = Line::styled(format!(" {} ", t!("tui.step", n = n)), theme::dim());
+        block = block.title(progress.right_aligned());
+    }
+    let inner = block.inner(card).inner(Margin::new(1, 0));
     f.render_widget(block, card);
-    let [q_area, _, body_area] = Layout::vertical([
+    let [logo, q_area, _, body_area, _, msgs] = Layout::vertical([
+        Constraint::Length(logo_rows),
         Constraint::Length(q_rows),
         Constraint::Length(1),
+        Constraint::Length(body_rows),
+        Constraint::Length(u16::from(!log.is_empty())),
         Constraint::Min(0),
     ])
     .areas(inner);
-    f.render_widget(q, q_area);
+    let logo_lines: Vec<Line> = LOGO
+        .iter()
+        .map(|l| Line::from(theme::gradient(l)))
+        .collect();
+    f.render_widget(Paragraph::new(logo_lines), logo);
+    f.render_widget(
+        Paragraph::new(Line::styled(question.to_string(), theme::accent()))
+            .wrap(Wrap { trim: true }),
+        q_area,
+    );
     body(f, body_area);
     let lines: Vec<Line> = log
         .iter()
         .map(|(m, s)| Line::styled(m.clone(), *s))
         .collect();
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), msgs);
     f.render_widget(
-        Paragraph::new(lines).wrap(Wrap { trim: true }),
-        msgs.inner(ratatui::layout::Margin::new(1, 1)),
-    );
-    f.render_widget(
-        Paragraph::new(Line::styled(hints.to_string(), theme::dim())),
+        Paragraph::new(hints(keys, usize::from(footer.width))),
         footer,
     );
-    Some(card)
+    Some(inner)
 }
 
 impl<'a> TuiPrompter<'a> {
@@ -180,6 +189,8 @@ impl<'a> TuiPrompter<'a> {
             term,
             log: Vec::new(),
             fx: EffectManager::default(),
+            step: Some(0),
+            asked: String::new(),
         }
     }
 
@@ -189,30 +200,42 @@ impl<'a> TuiPrompter<'a> {
         self.log.drain(..extra);
     }
 
-    /// Draws `view` and feeds it events until `on` returns an answer. A new page fades in.
+    /// Draws `view` and feeds it events until `on` returns an answer. A new page sweeps in.
     /// Ctrl+C or Esc cancels the setup.
     fn interact<S, T>(
         &mut self,
         question: &str,
-        hints: &str,
+        keys: &str,
         rows: u16,
         state: &mut S,
         view: impl Fn(&S, &mut Frame, Rect),
         mut on: impl FnMut(&mut S, &Event) -> Option<T>,
     ) -> Result<T> {
-        if motion() {
-            self.fx
-                .add_effect(fx::fade_from_fg(theme::FADE, (300, Interpolation::QuadOut)));
+        // A question asked again (a value refused) stays the same step.
+        if let Some(n) = &mut self.step
+            && self.asked != question
+        {
+            *n += 1;
+            self.asked = question.to_string();
         }
+        let mut reveal = motion();
         let mut last = Instant::now();
         loop {
             let elapsed = last.elapsed();
             last = Instant::now();
             let log = self.log.clone();
             let fxm = &mut self.fx;
+            let step = self.step;
             self.term.draw(|f| {
-                if let Some(card) = page(f, question, &log, hints, rows, |f, r| view(state, f, r)) {
-                    fxm.process_effects(elapsed.into(), f.buffer_mut(), card);
+                let page = page(f, step, question, &log, keys, rows, |f, r| {
+                    view(state, f, r)
+                });
+                if let Some(inner) = page {
+                    // Started on the first frame: its area is only known once drawn.
+                    if std::mem::take(&mut reveal) {
+                        fxm.add_effect(sweep(300, inner));
+                    }
+                    fxm.process_effects(elapsed.into(), f.buffer_mut(), inner);
                 }
             })?;
             let wait = if self.fx.is_running() { 16 } else { 250 };
@@ -302,7 +325,7 @@ impl Prompter for TuiPrompter<'_> {
                     .skip(first)
                     .take(visible)
                     .map(|(i, o)| {
-                        let mark = if i == m.sel { "› " } else { "  " };
+                        let mark = if i == m.sel { "▶ " } else { "  " };
                         let style = if i == m.sel {
                             theme::selected()
                         } else {
@@ -409,6 +432,7 @@ impl Prompter for TuiPrompter<'_> {
     fn busy(&mut self, label: &str, work: &mut dyn FnMut()) {
         let stop = AtomicBool::new(false);
         let log = self.log.clone();
+        let step = self.step;
         let term = &mut *self.term;
         std::thread::scope(|s| {
             let stop = &stop;
@@ -416,7 +440,7 @@ impl Prompter for TuiPrompter<'_> {
                 while !stop.load(Ordering::Relaxed) {
                     let line = format!("{} {label}", spinner());
                     let _ = term.draw(|f| {
-                        page(f, &line, &log, "", 0, |_, _| {});
+                        page(f, step, &line, &log, "", 0, |_, _| {});
                     });
                     std::thread::sleep(Duration::from_millis(80));
                 }
@@ -433,6 +457,7 @@ pub fn done(term: &mut DefaultTerminal, lines: &[String]) -> Result<()> {
     let body: Vec<Line> = lines.iter().map(|l| Line::raw(l.clone())).collect();
     let rows = body.len() as u16 * 2 + 1;
     let mut p = TuiPrompter::new(term);
+    p.step = None;
     p.interact(
         &t!("tui.setup_done"),
         &hints,
@@ -449,9 +474,12 @@ pub fn done(term: &mut DefaultTerminal, lines: &[String]) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::Input;
+    use super::{Input, page};
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::widgets::Paragraph;
 
-    /// A typed key is drawn as dots only.
+    /// A typed key is drawn as dots only, on the whole secret page.
     #[test]
     fn masked_field_never_shows_the_value() {
         let input = Input {
@@ -469,5 +497,23 @@ mod tests {
             "{shown}"
         );
         assert_eq!(shown.matches('•').count(), 13);
+
+        let mut term = Terminal::new(TestBackend::new(100, 40)).expect("test terminal");
+        term.draw(|f| {
+            page(f, Some(3), "API key", &[], "⏎ confirm", 1, |f, r| {
+                f.render_widget(Paragraph::new(input.line(None)), r)
+            });
+        })
+        .expect("draw");
+        let screen: String = term
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(screen.contains("API key"), "the page was not drawn");
+        assert!(!screen.contains("sk-") && !screen.contains("secret"));
+        assert_eq!(screen.matches('•').count(), 13);
     }
 }

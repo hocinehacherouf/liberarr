@@ -120,6 +120,7 @@ config.vocabulary_ignored: "Warning: LIBERARR_TRANSCRIBE_VOCABULARY is ignored: 
 tui.cancelled: "Setup cancelled."
 tui.too_small: "Window too small: enlarge it to at least 60×16."
 tui.setup: "setup"
+tui.step: "step %{n}"
 tui.hints_field: "⏎ confirm   esc cancel"
 tui.hints_menu: "↑↓ choose   type to enter a value   ⏎ confirm   esc cancel"
 tui.or_type: "or type a value"

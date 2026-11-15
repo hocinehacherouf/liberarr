@@ -3,7 +3,7 @@
 use super::{Focus, Fx, Phase, TABS, Tab, Ui, WIDE, lock};
 use crate::commands::pull::{Transfer, mb};
 use crate::tui::text::{markdown, mindmap};
-use crate::tui::{LOGO, MIN_HEIGHT, MIN_WIDTH, colors, motion, spinner, theme};
+use crate::tui::{LOGO, MIN_HEIGHT, MIN_WIDTH, hints, motion, pane, spinner, sweep, theme};
 use liberarr_core::jobs::{JobInfo, JobStatus, STEPS};
 use liberarr_core::recordings::{RecordingItem, RecordingStatus};
 use liberarr_core::transcription::timestamp;
@@ -17,8 +17,7 @@ use ratatui::widgets::{
 };
 use rust_i18n::t;
 use std::time::{Duration, Instant};
-use tachyonfx::pattern::SweepPattern;
-use tachyonfx::{Interpolation, fx};
+use tachyonfx::fx;
 
 /// How long the outcome of a pull stays open in the activity pane before it folds to one line.
 const OUTCOME: Duration = Duration::from_secs(30);
@@ -52,24 +51,6 @@ fn fit(s: &str, max: usize) -> String {
 
 fn dim(s: &str) -> Span<'static> {
     Span::styled(s.to_string(), theme::dim())
-}
-
-/// A pane with rounded borders and its title in the border. The focused one has the accent
-/// color, or thick borders when colors are off.
-fn pane(title: Line<'static>, focused: bool) -> Block<'static> {
-    Block::bordered()
-        .border_type(if focused && !colors() {
-            BorderType::Thick
-        } else {
-            BorderType::Rounded
-        })
-        .border_style(theme::border(focused))
-        .title_style(if focused {
-            theme::accent()
-        } else {
-            theme::bold()
-        })
-        .title(title)
 }
 
 /// A scrollbar in the right border of a pane, when the content is longer than `rows`.
@@ -222,21 +203,6 @@ fn transfer(tr: &Transfer, count: usize, max: usize) -> Line<'static> {
     Line::from(spans)
 }
 
-/// Key hints: `key what` items separated by three spaces, the keys in bold. The items that
-/// do not fit in `max` columns are left out.
-fn hints(text: &str, max: usize) -> Line<'static> {
-    let mut line = Line::default();
-    for item in text.split("   ") {
-        if line.width() + width(item) + 3 > max {
-            break;
-        }
-        let (key, what) = item.split_once(' ').unwrap_or((item, ""));
-        line.push_span(Span::styled(format!(" {key}"), theme::bold()));
-        line.push_span(dim(&format!(" {what}  ")));
-    }
-    line
-}
-
 impl Ui {
     pub(super) fn draw(&mut self, f: &mut Frame, elapsed: Duration) {
         let area = f.area();
@@ -319,12 +285,6 @@ impl Ui {
         content: Option<Rect>,
         finished: Option<Rect>,
     ) {
-        // The content appears from the left: `coalesce` plays the pattern backwards.
-        let sweep = |ms, area| {
-            fx::coalesce((ms, Interpolation::QuadOut))
-                .with_pattern(SweepPattern::right_to_left(24))
-                .with_area(area)
-        };
         let mut start = Vec::new();
         // Moving fast through the list (a held key) changes the preview without the effect:
         // it would hide the content most of the time.

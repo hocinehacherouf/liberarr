@@ -120,6 +120,7 @@ config.vocabulary_ignored: "Attention : LIBERARR_TRANSCRIBE_VOCABULARY est ignor
 tui.cancelled: "Configuration annulée."
 tui.too_small: "Fenêtre trop petite : agrandissez-la à au moins 60×16."
 tui.setup: "configuration"
+tui.step: "étape %{n}"
 tui.hints_field: "⏎ valider   échap annuler"
 tui.hints_menu: "↑↓ choisir   tapez pour saisir une valeur   ⏎ valider   échap annuler"
 tui.or_type: "ou tapez une valeur"
