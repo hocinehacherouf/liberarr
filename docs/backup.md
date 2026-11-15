@@ -10,6 +10,7 @@ liberarr backup ~/liberarr-backup
 
 - It is safe while `serve`, `tui` or `pull` run: the database is copied as one consistent snapshot, then the audio and the other files.
 - The folder must be new or empty, and outside the home.
+- It needs free space about the size of the home (mostly the audio). On a full disk the backup fails and its folder is removed.
 - The backup is built in `<folder>.incomplete` and gets its final name only when it is complete. If the backup fails, that folder is removed. If it is interrupted, the `.incomplete` folder stays: delete it and never restore from it.
 - The command prints counts and sizes only, and exits with an error code on any failure.
 

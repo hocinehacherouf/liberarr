@@ -10,7 +10,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
 
 /// What went into the backup: counts and sizes only.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Copied {
     pub db_bytes: u64,
     pub files: u64,
