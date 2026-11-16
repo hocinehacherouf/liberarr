@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
 import { Link, useParams } from 'react-router'
 import { Loading } from '../../shared/Loading'
+import { ApiError } from '../../shared/api'
 import { formatDate, formatTimestamp } from '../../shared/time'
 import { ActionsTable } from '../summaries/ActionsTable'
 import { Mindmap } from '../summaries/Mindmap'
@@ -17,6 +18,7 @@ const JOB: Record<Job['status'], [string, string]> = {
   running: ['◌', 'text-accent motion-safe:animate-pulse'],
   queued: ['·', 'text-muted'],
 }
+const RERUN_STEPS = ['transcribe', 'summarize', 'export'] as const
 
 /** A pane of the page: rounded border, its title on top. */
 function Pane({ title, children }: { title: string; children: ReactNode }) {
@@ -59,6 +61,7 @@ export function RecordingPage() {
 
   const failedStep = rec.status === 'failed' ? rec.failed_step : null
   const failedJob = failedStep ? rec.jobs.findLast((j) => j.step === failedStep) : undefined
+  const rerunDetail = rerun.error instanceof ApiError ? rerun.error.message : ''
   // The latest job of each step, in the order the steps first ran.
   const steps = [...new Set(rec.jobs.map((j) => j.step))].map((step) => rec.jobs.findLast((j) => j.step === step)!)
 
@@ -113,9 +116,27 @@ export function RecordingPage() {
           </button>
         </div>
       )}
+      {rec.status !== 'processing' && (
+        <fieldset disabled={rerun.isPending} aria-describedby="rerun-help" className="min-w-0 space-y-2">
+          <legend className="font-semibold">{t('recordings.rerunTitle')}</legend>
+          <p id="rerun-help" className="text-sm text-muted">{t('recordings.rerunHelp')}</p>
+          <div className="flex flex-wrap gap-2">
+            {RERUN_STEPS.map((step) => (
+              <button
+                key={step}
+                type="button"
+                onClick={() => rerun.mutate(step)}
+                className="min-h-11 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-semibold hover:text-accent disabled:opacity-60"
+              >
+                {t('recordings.rerunStep', { step: t(`recordings.steps.${step}`) })}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+      )}
       {rerun.isError && (
         <p role="alert" className="text-sm text-err">
-          {t('recordings.retryError')}
+          {t(rerunDetail ? 'recordings.retryErrorWithDetail' : 'recordings.retryError', { error: rerunDetail })}
         </p>
       )}
       {rec.status === 'processing' && (

@@ -27,6 +27,10 @@
     "stepFailedWithError": "Step “{{step}}” failed: {{error}}",
     "retry": "Retry",
     "retryError": "Unable to retry the step.",
+    "retryErrorWithDetail": "Unable to retry the step. {{error}}",
+    "rerunTitle": "Run a step again",
+    "rerunHelp": "The steps that follow will run again too.",
+    "rerunStep": "Rerun {{step}}",
     "noSpeech": "No speech",
     "noSpeechDetail": "No speech detected: no summary or note was made.",
     "status": {
