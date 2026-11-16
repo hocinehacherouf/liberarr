@@ -1,6 +1,6 @@
 //! Filesystem adapters: atomic note writes, device-pull scratch space, audio storage and splitting.
 //! Files holding recordings or keys are created 0600, their directories 0700.
-use liberarr_core::audio::ogg::split_ogg;
+use liberarr_core::audio::ogg::{opus_duration_seconds, split_ogg};
 use liberarr_core::device::ports::PartialStore;
 use liberarr_core::exports::NoteStore;
 use liberarr_core::recordings::{AudioStore, StoredAudio};
@@ -70,6 +70,23 @@ pub fn sha256_file(p: &Path) -> Result<String> {
         }
     }
     Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+fn opus_duration_from_file(path: &Path) -> Result<Option<f64>> {
+    let mut file = File::open(path).map_err(|e| io_err("open audio", e))?;
+    let mut prefix = [0; 4];
+    match file.read_exact(&mut prefix) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
+        Err(e) => return Err(io_err("read audio", e)),
+    }
+    if &prefix != b"OggS" {
+        return Ok(None);
+    }
+    let mut data = prefix.to_vec();
+    file.read_to_end(&mut data)
+        .map_err(|e| io_err("read audio", e))?;
+    Ok(opus_duration_seconds(&data))
 }
 
 /// `read` gives `None` only for a missing note; any other error is returned, so the owner's
@@ -178,6 +195,7 @@ impl AudioStore for FsAudioStore {
     }
 
     fn store(&self, src: &Path, fingerprint: &str) -> Result<StoredAudio> {
+        let duration_s = opus_duration_from_file(src)?;
         mkdir(&self.audio, 0o700)?;
         let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("ogg");
         let dest = self.audio.join(format!("{fingerprint}.{ext}"));
@@ -194,10 +212,9 @@ impl AudioStore for FsAudioStore {
             write_atomic(&dest, 0o600, |to| io::copy(&mut from, to).map(drop))
                 .map_err(|e| io_err("copy audio", e))?;
         }
-        // shortcut: duration is not probed here, upgrade when the UI needs it before transcription.
         Ok(StoredAudio {
             path: dest,
-            duration_s: None,
+            duration_s,
         })
     }
 }
@@ -235,6 +252,44 @@ mod tests {
             let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    fn opus_file() -> Vec<u8> {
+        fn page(seq: u32, granule: i64, flags: u8, body: &[u8]) -> Vec<u8> {
+            let mut page = b"OggS".to_vec();
+            page.extend_from_slice(&[0, flags]);
+            page.extend_from_slice(&granule.to_le_bytes());
+            page.extend_from_slice(&1234u32.to_le_bytes());
+            page.extend_from_slice(&seq.to_le_bytes());
+            page.extend_from_slice(&[0; 4]);
+            page.extend_from_slice(&[1, body.len() as u8]);
+            page.extend_from_slice(body);
+
+            let crc = page.iter().enumerate().fold(0u32, |crc, (i, &byte)| {
+                let byte = if (22..26).contains(&i) { 0 } else { byte };
+                let mut crc = crc ^ ((byte as u32) << 24);
+                for _ in 0..8 {
+                    crc = if crc & 0x8000_0000 != 0 {
+                        (crc << 1) ^ 0x04C1_1DB7
+                    } else {
+                        crc << 1
+                    };
+                }
+                crc
+            });
+            page[22..26].copy_from_slice(&crc.to_le_bytes());
+            page
+        }
+
+        let mut head = b"OpusHead\x01\x01".to_vec();
+        head.extend_from_slice(&312u16.to_le_bytes());
+        head.extend_from_slice(&[0; 7]);
+        [
+            page(0, 0, 0x02, &head),
+            page(1, -1, 0, b"OpusTags"),
+            page(2, 48_312, 0x04, b"audio packet"),
+        ]
+        .concat()
     }
 
     #[test]
@@ -305,6 +360,7 @@ mod tests {
         let kept = store.store(&user, &fp).unwrap();
         assert!(user.exists(), "the user's original must survive");
         assert_eq!(std::fs::read(&kept.path).unwrap(), b"user audio");
+        assert_eq!(kept.duration_s, None);
 
         // A staged device Ogg is moved: no second copy is left in staging.
         let staged = partials.stage_audio("h-2", b"device ogg").unwrap();
@@ -316,6 +372,25 @@ mod tests {
             std::fs::metadata(&kept2.path).unwrap().permissions().mode() & 0o777,
             0o600
         );
+    }
+
+    #[test]
+    fn store_records_duration_for_opus_and_keeps_the_user_file() {
+        let d = Dir::new("opus-duration");
+        let audio = d.0.join("audio");
+        let store = FsAudioStore {
+            audio: audio.clone(),
+        };
+        let user = d.0.join("meeting.ogg");
+        let data = opus_file();
+        std::fs::write(&user, &data).unwrap();
+
+        let fp = store.fingerprint(&user).unwrap();
+        let stored = store.store(&user, &fp).unwrap();
+
+        assert_eq!(stored.duration_s, Some(1.0));
+        assert_eq!(std::fs::read(&stored.path).unwrap(), data);
+        assert!(user.exists(), "importing must not remove the user's file");
     }
 
     #[test]
