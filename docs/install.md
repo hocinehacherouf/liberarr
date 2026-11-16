@@ -59,7 +59,7 @@ On macOS, the first `link` or `pull` asks for Bluetooth access for your terminal
 
 ## Container (web UI)
 
-From the first release, the image `ghcr.io/hocinehacherouf/liberarr` (Linux, x86-64 and ARM64) runs `liberarr serve`. It runs as a non-root user (`nonroot`, uid 65532) and keeps everything in the `/data` volume (`LIBERARR_HOME`). It holds only the binary and the [Wolfi](https://wolfi.dev) packages it needs (glibc, CA certificates, libdbus, time zones): no shell, no package manager. The image is attested: `gh attestation verify oci://ghcr.io/hocinehacherouf/liberarr:<version> --repo hocinehacherouf/liberarr`.
+From the first release, the image `ghcr.io/hocinehacherouf/liberarr` (Linux, x86-64 and ARM64) runs `liberarr serve`. It runs as a non-root user (`nonroot`, uid 65532) and keeps everything in the `/data` volume (`LIBERARR_HOME`). It is based on the minimal [Wolfi](https://wolfi.dev) image `wolfi-base`. The image is attested: `gh attestation verify oci://ghcr.io/hocinehacherouf/liberarr:<version> --repo hocinehacherouf/liberarr`.
 
 First start: write your AI provider settings in a file, for example `providers.env` (see [Configuration](configuration.md) for the variables):
 
