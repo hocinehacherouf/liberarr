@@ -34,6 +34,18 @@ The first command stays open on purpose: it stands in for a running worker, so t
 
 The README demo is recorded from this data with [VHS](https://github.com/charmbracelet/vhs): `vhs docs/assets/demo.tape` (the build commands are at the top of the tape).
 
+### Fuzzing
+
+The parsers of untrusted bytes in `liberarr-core` (Ogg, BLE adverts and device replies) have [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets in `fuzz/`, a separate workspace that needs a nightly toolchain:
+
+```sh
+rustup toolchain install nightly && cargo install cargo-fuzz --locked
+cd fuzz && cargo +nightly fuzz list   # ogg, device_advert, device_reply
+cargo +nightly fuzz run ogg -- -max_total_time=180
+```
+
+A crash is a bug: fix it in the core and add its minimised input as a unit test.
+
 ## Pull requests
 
 - One topic per pull request. Code, comments, commit messages and docs are in English.

@@ -15,3 +15,9 @@ graphify-out/
 # Web: web/dist is built (npm run build), not committed
 web/node_modules/
 web/dist/
+
+# Fuzzing (cargo fuzz)
+fuzz/target/
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/coverage/

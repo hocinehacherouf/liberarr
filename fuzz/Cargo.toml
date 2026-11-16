@@ -1,0 +1,37 @@
+[package]
+name = "liberarr-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "MIT"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+liberarr-core = { path = "../crates/liberarr-core" }
+
+# Own workspace: kept out of the main one (nightly only, run by `cargo fuzz`).
+[workspace]
+
+[[bin]]
+name = "ogg"
+path = "fuzz_targets/ogg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "device_advert"
+path = "fuzz_targets/device_advert.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "device_reply"
+path = "fuzz_targets/device_reply.rs"
+test = false
+doc = false
+bench = false
