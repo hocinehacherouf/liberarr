@@ -59,7 +59,7 @@ On macOS, the first `link` or `pull` asks for Bluetooth access for your terminal
 
 ## Container (web UI)
 
-From the first release, the image `ghcr.io/hocinehacherouf/liberarr` (Linux, x86-64 and ARM64) runs `liberarr serve`. It runs as a non-root user (uid 1000) and keeps everything in the `/data` volume (`LIBERARR_HOME`). It holds only the binary and the [Wolfi](https://wolfi.dev) packages it needs (glibc, CA certificates, libdbus, time zones): no shell, no package manager. The image is attested: `gh attestation verify oci://ghcr.io/hocinehacherouf/liberarr:<version> --repo hocinehacherouf/liberarr`.
+From the first release, the image `ghcr.io/hocinehacherouf/liberarr` (Linux, x86-64 and ARM64) runs `liberarr serve`. It runs as a non-root user (`nonroot`, uid 65532) and keeps everything in the `/data` volume (`LIBERARR_HOME`). It holds only the binary and the [Wolfi](https://wolfi.dev) packages it needs (glibc, CA certificates, libdbus, time zones): no shell, no package manager. The image is attested: `gh attestation verify oci://ghcr.io/hocinehacherouf/liberarr:<version> --repo hocinehacherouf/liberarr`.
 
 First start: write your AI provider settings in a file, for example `providers.env` (see [Configuration](configuration.md) for the variables):
 
@@ -105,7 +105,7 @@ docker compose up -d
 
 **Keep the port private.** Inside the container, `serve` listens on all interfaces, so the check that refuses foreign `Host` names on a loopback address is off. Publishing on `127.0.0.1` (as above) keeps the web UI reachable from this machine only. `-p 8484:8484` makes it reachable from your network, behind the login only: put it behind an HTTPS reverse proxy and set `LIBERARR_COOKIE_SECURE=true` in `/data/.env`.
 
-**A bind mount instead of a volume** (`-v /some/folder:/data`) must be writable by uid 1000: `sudo chown 1000:1000 /some/folder`. Keep it on a local disk (see [Configuration](configuration.md)).
+**A bind mount instead of a volume** (`-v /some/folder:/data`) must be writable by uid 65532: `sudo chown 65532:65532 /some/folder`. Keep it on a local disk (see [Configuration](configuration.md)).
 
 **Bluetooth.** The container is for the web UI and for processing files. Pulling from the device inside it:
 

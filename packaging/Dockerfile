@@ -12,9 +12,9 @@ FROM cgr.dev/chainguard/wolfi-base:latest@sha256:24f549a7fcace88e69b9557941168c7
 RUN apk add --no-cache --no-scripts --initdb --root /out \
         --keys-dir /etc/apk/keys --repositories-file /etc/apk/repositories \
         wolfi-baselayout ca-certificates-bundle dbus-libs tzdata \
-    && echo 'liberarr:x:1000:1000:liberarr:/data:/sbin/nologin' >> /out/etc/passwd \
-    && echo 'liberarr:x:1000:' >> /out/etc/group \
-    && install -d -m 700 -o 1000 -g 1000 /out/data
+    && echo 'nonroot:x:65532:65532:nonroot:/data:/sbin/nologin' >> /out/etc/passwd \
+    && echo 'nonroot:x:65532:' >> /out/etc/group \
+    && install -d -m 700 -o 65532 -g 65532 /out/data
 
 FROM scratch
 COPY --from=root /out /
@@ -22,7 +22,8 @@ COPY --chmod=755 liberarr /usr/local/bin/liberarr
 
 ENV LIBERARR_HOME=/data
 VOLUME /data
-USER 1000:1000
+# The `nonroot` user of Chainguard images.
+USER 65532:65532
 EXPOSE 8484
 ENTRYPOINT ["/usr/local/bin/liberarr"]
 # All interfaces of the container: the port is reached through Docker's port publishing.
