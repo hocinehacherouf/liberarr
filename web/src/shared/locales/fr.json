@@ -27,6 +27,10 @@
     "stepFailedWithError": "Échec de l'étape « {{step}} » : {{error}}",
     "retry": "Relancer",
     "retryError": "Impossible de relancer l'étape.",
+    "retryErrorWithDetail": "Impossible de relancer l'étape. {{error}}",
+    "rerunTitle": "Relancer une étape",
+    "rerunHelp": "Les étapes suivantes seront également relancées.",
+    "rerunStep": "Relancer « {{step}} »",
     "noSpeech": "Aucune parole",
     "noSpeechDetail": "Aucune parole détectée : ni résumé ni note.",
     "status": {
