@@ -660,6 +660,8 @@ fn fold(s: &str) -> String {
             'ñ' => out.push('n'),
             'œ' => out.push_str("oe"),
             'æ' => out.push_str("ae"),
+            // Combining accents: "é" typed as "e" + U+0301 (macOS file names) folds too.
+            '\u{300}'..='\u{36f}' => {}
             c => out.push(c),
         }
     }
@@ -919,6 +921,7 @@ mod tests {
             no_speech: false,
         };
         assert!(matches(&item(Some("Réunion d'équipe")), &fold("reunion")));
+        assert!(matches(&item(Some("Re\u{301}union")), &fold("reunion")));
         assert!(matches(&item(Some("Cœur")), &fold("coeur")));
         assert!(matches(&item(None), &fold(&t!("tui.untitled"))));
         assert!(!matches(&item(Some("Cœur")), &fold("reunion")));
