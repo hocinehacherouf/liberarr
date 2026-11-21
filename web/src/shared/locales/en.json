@@ -1,6 +1,9 @@
 {
   "common": {
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyFailed": "Copy failed: select the text by hand"
   },
   "auth": {
     "username": "Username",
@@ -52,6 +55,7 @@
     }
   },
   "summaries": {
+    "copy": "Copy the summary",
     "summary": "Summary",
     "mindmap": "Mind map",
     "mindmapError": "Unreadable mind map: {{error}}",
@@ -69,6 +73,9 @@
     }
   },
   "transcription": {
+    "copy": "Copy the transcript",
+    "download": "Download the transcript as a text file",
+    "downloadShort": "Download",
     "title": "Transcript",
     "noTimestamps": "This provider does not return timestamps"
   }

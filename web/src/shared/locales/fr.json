@@ -1,6 +1,9 @@
 {
   "common": {
-    "loading": "Chargement…"
+    "loading": "Chargement…",
+    "copy": "Copier",
+    "copied": "Copié",
+    "copyFailed": "Échec de la copie : sélectionnez le texte à la main"
   },
   "auth": {
     "username": "Identifiant",
@@ -52,6 +55,7 @@
     }
   },
   "summaries": {
+    "copy": "Copier le résumé",
     "summary": "Résumé",
     "mindmap": "Carte mentale",
     "mindmapError": "Carte mentale illisible : {{error}}",
@@ -69,6 +73,9 @@
     }
   },
   "transcription": {
+    "copy": "Copier la transcription",
+    "download": "Télécharger la transcription en fichier texte",
+    "downloadShort": "Télécharger",
     "title": "Transcription",
     "noTimestamps": "Ce fournisseur ne renvoie pas d'horodatage"
   }
