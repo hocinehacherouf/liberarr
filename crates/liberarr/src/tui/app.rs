@@ -250,16 +250,8 @@ impl Ui {
     }
 
     fn visible(&self) -> Vec<&RecordingItem> {
-        let f = self.filter.to_lowercase();
-        self.items
-            .iter()
-            .filter(|i| {
-                f.is_empty()
-                    || i.title
-                        .as_deref()
-                        .is_some_and(|t| t.to_lowercase().contains(&f))
-            })
-            .collect()
+        let query = fold(self.filter.trim());
+        self.items.iter().filter(|i| matches(i, &query)).collect()
     }
 
     fn processing(&self) -> bool {
@@ -652,6 +644,34 @@ impl Ui {
     }
 }
 
+/// Lowercase, accents removed: "Réunion" and "reunion" compare equal.
+// shortcut: only the accented Latin letters of French and nearby languages are folded; other scripts compare as they are. Upgrade to Unicode normalization if users search other languages.
+fn fold(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.to_lowercase().chars() {
+        match c {
+            'à' | 'â' | 'ä' => out.push('a'),
+            'é' | 'è' | 'ê' | 'ë' => out.push('e'),
+            'î' | 'ï' => out.push('i'),
+            'ô' | 'ö' => out.push('o'),
+            'ù' | 'û' | 'ü' => out.push('u'),
+            'ç' => out.push('c'),
+            'ÿ' => out.push('y'),
+            'ñ' => out.push('n'),
+            'œ' => out.push_str("oe"),
+            'æ' => out.push_str("ae"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// A recording matches on the name the list shows for it, untitled ones included.
+/// `query` is already folded.
+fn matches(i: &RecordingItem, query: &str) -> bool {
+    fold(&draw::title(i)).contains(query)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -884,5 +904,23 @@ mod tests {
         drop(ui);
         drop(app);
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn search_ignores_accents_and_finds_untitled() {
+        let item = |title: Option<&str>| RecordingItem {
+            id: 1,
+            title: title.map(Into::into),
+            source: Source::File,
+            duration_s: None,
+            created_at: jiff::Timestamp::UNIX_EPOCH,
+            status: RecordingStatus::Done,
+            failed_step: None,
+            no_speech: false,
+        };
+        assert!(matches(&item(Some("Réunion d'équipe")), &fold("reunion")));
+        assert!(matches(&item(Some("Cœur")), &fold("coeur")));
+        assert!(matches(&item(None), &fold(&t!("tui.untitled"))));
+        assert!(!matches(&item(Some("Cœur")), &fold("reunion")));
     }
 }

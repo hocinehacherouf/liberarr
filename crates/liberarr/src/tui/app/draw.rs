@@ -92,7 +92,7 @@ fn status_mark(i: &RecordingItem) -> (String, Style) {
     }
 }
 
-fn title(i: &RecordingItem) -> String {
+pub(super) fn title(i: &RecordingItem) -> String {
     i.title
         .clone()
         .unwrap_or_else(|| t!("tui.untitled").into_owned())
