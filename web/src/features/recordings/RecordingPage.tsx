@@ -4,10 +4,12 @@ import Markdown from 'react-markdown'
 import { Link, useParams } from 'react-router'
 import { Loading } from '../../shared/Loading'
 import { ApiError } from '../../shared/api'
+import { CopyButton } from '../../shared/CopyButton'
 import { formatDate, formatTimestamp } from '../../shared/time'
 import { ActionsTable } from '../summaries/ActionsTable'
 import { Mindmap } from '../summaries/Mindmap'
 import { TranscriptView } from '../transcription/TranscriptView'
+import { downloadText, transcriptCopyText, transcriptFileName, transcriptFileText } from '../transcription/text'
 import { useRecording, useRerun, type Job } from './api'
 import { StatusBadge } from './StatusBadge'
 
@@ -21,10 +23,13 @@ const JOB: Record<Job['status'], [string, string]> = {
 const RERUN_STEPS = ['transcribe', 'summarize', 'export'] as const
 
 /** A pane of the page: rounded border, its title on top. */
-function Pane({ title, children }: { title: string; children: ReactNode }) {
+function Pane({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
   return (
     <section className="rounded-xl border border-line bg-surface p-4 sm:p-5">
-      <h2 className="mb-3 text-sm font-semibold tracking-wide text-accent uppercase">{title}</h2>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold tracking-wide text-accent uppercase">{title}</h2>
+        {actions && <div className="flex items-center gap-2">{actions}</div>}
+      </div>
       {children}
     </section>
   )
@@ -161,7 +166,10 @@ export function RecordingPage() {
 
       {rec.summary && (
         <>
-          <Pane title={t('summaries.summary')}>
+          <Pane
+            title={t('summaries.summary')}
+            actions={<CopyButton text={rec.summary.summary_md} label={t('summaries.copy')} />}
+          >
             {/* No raw HTML (react-markdown default) and no images: a remote URL in LLM output would leak. */}
             <div className="space-y-2 leading-relaxed [&_a]:text-accent [&_a]:underline [&_h1]:mt-4 [&_h1]:font-semibold [&_h1]:text-accent [&_h1:first-child]:mt-0 [&_h2]:mt-4 [&_h2]:font-semibold [&_h2]:text-accent [&_h2:first-child]:mt-0 [&_h3]:mt-3 [&_h3]:font-semibold [&_li]:ml-5 [&_li::marker]:text-muted [&_ol]:list-decimal [&_ul]:list-disc">
               <Markdown disallowedElements={['img']}>{rec.summary.summary_md}</Markdown>
@@ -177,7 +185,24 @@ export function RecordingPage() {
       )}
 
       {rec.transcript && (
-        <Pane title={t('transcription.title')}>
+        <Pane
+          title={t('transcription.title')}
+          actions={
+            <>
+              <CopyButton text={transcriptCopyText(rec.transcript)} label={t('transcription.copy')} />
+              <button
+                type="button"
+                aria-label={t('transcription.download')}
+                onClick={() =>
+                  downloadText(transcriptFileText(rec.transcript!), transcriptFileName(rec.summary?.title ?? rec.title, rec.id))
+                }
+                className="rounded-md border border-line bg-surface px-3 py-1 text-sm font-semibold hover:text-accent"
+              >
+                {t('transcription.downloadShort')}
+              </button>
+            </>
+          }
+        >
           <TranscriptView transcript={rec.transcript} audio={audio} onSeek={seek} />
         </Pane>
       )}
