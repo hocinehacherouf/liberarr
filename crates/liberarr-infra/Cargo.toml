@@ -24,6 +24,8 @@ btleplug = { workspace = true }
 futures = { workspace = true }
 # Opus decoder for local transcription (libopus built statically, no system library).
 opus = { workspace = true }
+# whisper.cpp for local transcription; Metal on Apple silicon only.
+whisper-rs = { workspace = true }
 # Unlock secret: parses the user's private key.
 rsa = { workspace = true }
 
@@ -35,6 +37,9 @@ hkdf = { workspace = true }
 aes = { workspace = true }
 cbc = { workspace = true }
 hmac = { workspace = true }
+
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+whisper-rs = { workspace = true, features = ["metal"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "net", "time"] }
