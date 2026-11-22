@@ -1,5 +1,6 @@
 //! Ogg page integrity check (capture pattern, CRC, page sequence continuity) and the Ogg Opus splitter.
 use crate::{Error, Result};
+use std::borrow::Cow;
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum OggError {
@@ -11,6 +12,10 @@ pub enum OggError {
     BadCrc(usize),
     #[error("page {0}: sequence number not contiguous")]
     BadSequence(usize),
+    #[error("no Opus stream")]
+    NoOpusStream,
+    #[error("broken Opus packets (lacing or headers)")]
+    BadPackets,
 }
 
 const fn crc_table() -> [u32; 256] {
@@ -111,6 +116,60 @@ fn page_serial(page: &[u8]) -> u32 {
 fn page_body(page: &[u8]) -> &[u8] {
     let start = 27 + page[26] as usize;
     &page[start..]
+}
+
+/// An Ogg Opus stream's header fields and audio packets.
+#[derive(Debug)]
+pub struct OpusStream<'a> {
+    pub channels: u8,
+    pub pre_skip: u16,
+    pub packets: Vec<Cow<'a, [u8]>>,
+}
+
+/// Audio packets of the Opus stream (the logical stream whose page starts with `OpusHead`, like
+/// `split_ogg` and `opus_duration_seconds`: Plaud files interleave a `PLAUD.AI` side stream), in
+/// order and reassembled across pages (a lacing value of 255 continues the packet), without
+/// `OpusHead`/`OpusTags`. A packet inside one page is borrowed, one spanning pages is copied.
+pub fn opus_packets(data: &[u8]) -> Result<OpusStream<'_>, OggError> {
+    verify_ogg(data)?;
+    let all = pages(data);
+    let head_page = all
+        .iter()
+        .find(|p| page_body(p).starts_with(b"OpusHead") && page_body(p).len() >= 12)
+        .ok_or(OggError::NoOpusStream)?;
+    let (head, serial) = (page_body(head_page), page_serial(head_page));
+
+    let (mut packets, mut pending) = (Vec::new(), Vec::new());
+    for page in all.iter().filter(|p| page_serial(p) == serial) {
+        // A continued page needs an unfinished packet, and an unfinished packet needs a continued page.
+        if (page[5] & 1 != 0) != !pending.is_empty() {
+            return Err(OggError::BadPackets);
+        }
+        let (body, mut start, mut end) = (page_body(page), 0, 0);
+        for &lace in &page[27..27 + page[26] as usize] {
+            end += usize::from(lace);
+            if lace < 255 {
+                let seg = &body[start..end];
+                packets.push(if pending.is_empty() {
+                    Cow::Borrowed(seg)
+                } else {
+                    pending.extend_from_slice(seg);
+                    Cow::Owned(std::mem::take(&mut pending))
+                });
+                start = end;
+            }
+        }
+        pending.extend_from_slice(&body[start..end]);
+    }
+    if !pending.is_empty() || packets.len() < 2 || !packets[1].starts_with(b"OpusTags") {
+        return Err(OggError::BadPackets);
+    }
+    packets.drain(..2);
+    Ok(OpusStream {
+        channels: head[9],
+        pre_skip: u16::from_le_bytes([head[10], head[11]]),
+        packets,
+    })
 }
 
 /// Returns the duration of a complete Ogg Opus stream without decoding its audio packets.
@@ -447,6 +506,117 @@ pub(crate) mod tests {
             assert_eq!(verify_ogg(bytes), Ok(()));
             assert!(!bytes.windows(8).any(|w| w == b"PLAUD.AI"));
         }
+    }
+
+    /// A page with explicit lacing values, for packets that span pages.
+    fn page_lacing(seq: u32, flags: u8, lacing: &[u8], body: &[u8]) -> Vec<u8> {
+        let mut p = b"OggS".to_vec();
+        p.extend_from_slice(&[0, flags]);
+        p.extend_from_slice(&(-1i64).to_le_bytes());
+        p.extend_from_slice(&1234u32.to_le_bytes());
+        p.extend_from_slice(&seq.to_le_bytes());
+        p.extend_from_slice(&[0; 4]);
+        p.push(lacing.len() as u8);
+        p.extend_from_slice(lacing);
+        p.extend_from_slice(body);
+        let c = crc(&p);
+        p[22..26].copy_from_slice(&c.to_le_bytes());
+        p
+    }
+
+    fn opus_head() -> Vec<u8> {
+        let mut head = b"OpusHead\x01\x01".to_vec();
+        head.extend_from_slice(&(PRE_SKIP as u16).to_le_bytes());
+        head.extend_from_slice(&[0; 7]);
+        head
+    }
+
+    /// A 600-byte packet split as lacing 255,255 | 90 over two pages, then a small packet.
+    fn spanning_stream() -> (Vec<u8>, Vec<u8>) {
+        let big: Vec<u8> = (0..600).map(|i| (i % 251) as u8).collect();
+        let data = [
+            page(0, &opus_head()),
+            page(1, b"OpusTags"),
+            page_lacing(2, 0, &[255, 255], &big[..510]),
+            page_lacing(3, 1, &[90], &big[510..]),
+            page(4, b"tail"),
+        ]
+        .concat();
+        (data, big)
+    }
+
+    /// Cumulative page ends of a stream.
+    fn boundaries(data: &[u8]) -> Vec<usize> {
+        pages(data)
+            .iter()
+            .scan(0, |end, p| {
+                *end += p.len();
+                Some(*end)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn opus_packets_reads_head_and_packets() {
+        let data = opus_stream();
+        let s = opus_packets(&data).unwrap();
+        assert_eq!((s.channels, i64::from(s.pre_skip)), (1, PRE_SKIP));
+        let packets: Vec<&[u8]> = s.packets.iter().map(|p| &p[..]).collect();
+        let expected: Vec<Vec<u8>> = (1..=6).map(|n| vec![n; 100]).collect();
+        assert_eq!(packets, expected.iter().map(|p| &p[..]).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn opus_packets_joins_a_packet_across_pages() {
+        let (data, big) = spanning_stream();
+        let s = opus_packets(&data).unwrap();
+        let packets: Vec<&[u8]> = s.packets.iter().map(|p| &p[..]).collect();
+        assert_eq!(packets, [&big[..], b"tail"]);
+    }
+
+    #[test]
+    fn opus_packets_rejects_non_opus() {
+        assert_eq!(opus_packets(&stream()).unwrap_err(), OggError::NoOpusStream);
+        // Not even Ogg: the integrity check runs first.
+        assert!(opus_packets(&[7; 100]).is_err());
+        // A continuation with no packet to continue is broken lacing, not a panic.
+        let orphan = [
+            page(0, &opus_head()),
+            page(1, b"OpusTags"),
+            page_lacing(2, 1, &[4], b"tail"),
+        ]
+        .concat();
+        assert_eq!(opus_packets(&orphan).unwrap_err(), OggError::BadPackets);
+    }
+
+    #[test]
+    fn opus_packets_skips_a_side_stream_first() {
+        let side: Vec<Vec<u8>> = (0..3)
+            .map(|i| with_serial(page(i, b"PLAUD.AI"), 9))
+            .collect();
+        let data = [side.concat(), opus_stream()].concat();
+        let s = opus_packets(&data).unwrap();
+        assert_eq!(s.packets.len(), 6);
+        assert!(s.packets.iter().all(|p| p.len() == 100));
+    }
+
+    #[test]
+    fn opus_packets_never_panics_on_truncation() {
+        for data in [opus_stream(), spanning_stream().0] {
+            let ends = boundaries(&data);
+            for n in 0..data.len() {
+                let r = opus_packets(&data[..n]);
+                if !ends.contains(&n) {
+                    assert!(r.is_err(), "cut at {n} accepted");
+                }
+            }
+        }
+        // Cut between the two pages of the spanning packet: a half packet is an error.
+        let (data, _) = spanning_stream();
+        assert_eq!(
+            opus_packets(&data[..boundaries(&data)[2]]).unwrap_err(),
+            OggError::BadPackets
+        );
     }
 
     #[test]

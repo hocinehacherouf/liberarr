@@ -1,6 +1,6 @@
 #![no_main]
 
-use liberarr_core::audio::ogg::{opus_duration_seconds, split_ogg, verify_ogg};
+use liberarr_core::audio::ogg::{opus_duration_seconds, opus_packets, split_ogg, verify_ogg};
 use libfuzzer_sys::fuzz_target;
 
 /// Ogg CRC-32 (polynomial 0x04C11DB7, MSB first, initial value 0) with the CRC field read as zero.
@@ -43,6 +43,7 @@ fuzz_target!(|data: &[u8]| {
     fix_crcs(&mut data);
     let _ = verify_ogg(&data);
     let _ = opus_duration_seconds(&data);
+    let _ = opus_packets(&data);
     // The last byte picks a size limit below the input length, so the splitter really splits.
     if let Some(&b) = data.last() {
         let _ = split_ogg(&data, data.len() * usize::from(b) / 256);
