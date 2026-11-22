@@ -228,6 +228,8 @@ impl StepHandler for App {
                 // No speech: no summary, so the chain stops before the export.
                 .map(|s| s.is_some()),
             },
+            // The diarizer arrives with its adapter; until then the step is a no-op success.
+            "diarize" => Ok(true),
             "export" => ExportToObsidian {
                 recordings: &self.db,
                 transcripts: &self.db,
@@ -365,7 +367,11 @@ mod tests {
             let steps: Vec<_> = jobs.iter().map(|j| (j.step.as_str(), j.status)).collect();
             assert_eq!(
                 steps,
-                [("summarize", JobStatus::Done), ("export", JobStatus::Done)]
+                [
+                    ("summarize", JobStatus::Done),
+                    ("diarize", JobStatus::Done),
+                    ("export", JobStatus::Done)
+                ]
             );
         }
         let note = |id| {

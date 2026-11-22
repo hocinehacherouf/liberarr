@@ -595,9 +595,9 @@ async fn main() -> Result<(), AnyError> {
         // The jobs, taken and ended one by one as the worker does, up to the last step this
         // recording reaches.
         let last = if matches!(d.state, State::Done) {
-            STEPS[2]
+            "export"
         } else {
-            STEPS[1]
+            "summarize"
         };
         db.enqueue(id, STEPS[0]).await?;
         loop {
