@@ -161,7 +161,11 @@ fn run(audio: &[u8], whisper: &Path, vad: &Path) -> Result<ChunkResult> {
     for (start, end) in chunks {
         let from = ((start * RATE) as usize).min(samples.len());
         let to = ((end * RATE) as usize).min(samples.len());
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        // Greedy repeated the same words on a noisy stretch of a real recording (12 times); beam search did not, at the same quality and ~20% more time.
+        let mut params = FullParams::new(SamplingStrategy::BeamSearch {
+            beam_size: 5,
+            patience: -1.0,
+        });
         // whisper-rs defaults to English: "auto" detects the language (French and English mix).
         params.set_language(Some("auto"));
         params.set_translate(false);
