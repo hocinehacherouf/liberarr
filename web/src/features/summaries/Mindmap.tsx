@@ -1,11 +1,6 @@
-import { useEffect, useId, useState, useSyncExternalStore } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-
-const darkQuery = window.matchMedia('(prefers-color-scheme: dark)')
-const subscribe = (onChange: () => void) => {
-  darkQuery.addEventListener('change', onChange)
-  return () => darkQuery.removeEventListener('change', onChange)
-}
+import { useIsDark } from '@/components/theme-provider'
 
 // Branches alternate the brand's two ends; the root is the darker cyan, readable under white text.
 const brandVariables = (dark: boolean) => ({
@@ -27,7 +22,7 @@ const brandVariables = (dark: boolean) => ({
 export function Mindmap({ code }: { code: string }) {
   const { t } = useTranslation()
   const id = `mm-${useId().replace(/[^a-zA-Z0-9]/g, '')}`
-  const dark = useSyncExternalStore(subscribe, () => darkQuery.matches)
+  const dark = useIsDark()
   const [svg, setSvg] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -57,10 +52,10 @@ export function Mindmap({ code }: { code: string }) {
   if (error)
     return (
       <div className="space-y-2">
-        <p role="alert" className="text-sm text-warn">
+        <p role="alert" className="text-sm text-warning">
           {t('summaries.mindmapError', { error })}
         </p>
-        <pre className="overflow-x-auto rounded-md border border-line bg-canvas p-3 text-xs">{code}</pre>
+        <pre className="overflow-x-auto rounded-md border border-border bg-background p-3 text-xs">{code}</pre>
       </div>
     )
   return svg ? <div className="overflow-x-auto [&_svg]:mx-auto [&_svg]:min-w-[40rem]" dangerouslySetInnerHTML={{ __html: svg }} /> : null

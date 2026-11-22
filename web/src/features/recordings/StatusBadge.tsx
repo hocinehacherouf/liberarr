@@ -3,10 +3,10 @@ import type { RecordingItem } from './api'
 
 // The glyphs of the terminal app: the shape tells the state apart without the color.
 const STYLE = {
-  done: ['●', 'text-ok border-ok/40 bg-ok/10'],
-  processing: ['◌', 'text-accent border-accent/40 bg-accent/10'],
-  failed: ['▲', 'text-err border-err/40 bg-err/10'],
-  noSpeech: ['○', 'text-muted border-line bg-canvas'],
+  done: ['●', 'text-success border-success/40 bg-success/10'],
+  processing: ['◌', 'text-primary border-primary/40 bg-primary/10'],
+  failed: ['▲', 'text-destructive border-destructive/40 bg-destructive/10'],
+  noSpeech: ['○', 'text-muted-foreground border-border bg-background'],
 } as const
 
 export function StatusBadge({ recording }: { recording: Pick<RecordingItem, 'status' | 'no_speech'> }) {

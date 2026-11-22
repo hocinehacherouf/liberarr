@@ -36,3 +36,7 @@ cargo build --release
 ```
 
 Contributors can also install the binary with `cargo install --path crates/liberarr --locked` after the web build.
+
+## Web UI components
+
+The web UI is built on shadcn/ui (Base UI flavour, Luma style). Add a component with `npx --yes shadcn@4.23.0 add <name> -y` in `web/`. Do not hand-edit `web/src/components/ui`: when a change is unavoidable, mark it with a `// override: <why>` comment. The shadcn CLI talks to `ui.shadcn.com`, so it is a contributor tool and is never run in CI.

@@ -32,13 +32,13 @@ const Row = memo(function Row({
   // Both seek buttons do the same; the text one is a mouse convenience, outside the tab order.
   return (
     <li
-      className={`flex w-full flex-wrap gap-x-3 rounded-md border-l-2 px-2 py-1.5 leading-relaxed hover:bg-accent/5 ${active ? 'border-accent bg-accent/10' : 'border-transparent'}`}
+      className={`flex w-full flex-wrap gap-x-3 rounded-md border-l-2 px-2 py-1.5 leading-relaxed hover:bg-primary/5 ${active ? 'border-primary bg-primary/10' : 'border-transparent'}`}
     >
       <button
         type="button"
         onClick={() => onSeek(s.start)}
         aria-current={active || undefined}
-        className="self-start pt-0.5 font-mono text-xs text-accent tabular-nums"
+        className="self-start pt-0.5 font-mono text-xs text-primary tabular-nums"
       >
         {formatTimestamp(s.start)}
       </button>
@@ -65,7 +65,7 @@ export function TranscriptView({ transcript, speakerName, onRename, audio, onSee
   if (!transcript.has_timestamps)
     return (
       <div className="space-y-3">
-        <p className="text-sm text-muted">{t('transcription.noTimestamps')}</p>
+        <p className="text-sm text-muted-foreground">{t('transcription.noTimestamps')}</p>
         <p className="leading-relaxed whitespace-pre-wrap">{transcript.text}</p>
       </div>
     )

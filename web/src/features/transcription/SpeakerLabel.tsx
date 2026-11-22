@@ -83,24 +83,24 @@ export function SpeakerLabel({
         onChange={(e) => setName(e.target.value)}
         maxLength={MAX_NAME}
         aria-label={t('speakers.nameOf', { label })}
-        className="w-36 rounded-md border border-line bg-surface px-2 py-0.5 text-sm"
+        className="w-36 rounded-md border border-border bg-card px-2 py-0.5 text-sm"
       />
       <button
         type="submit"
         disabled={pending}
-        className="rounded-md border border-line bg-surface px-2 py-0.5 text-sm font-semibold hover:text-accent disabled:opacity-60"
+        className="rounded-md border border-border bg-card px-2 py-0.5 text-sm font-semibold hover:text-primary disabled:opacity-60"
       >
         {t('speakers.save')}
       </button>
       <button
         type="button"
         onClick={() => setEditing(false)}
-        className="rounded-md border border-line bg-surface px-2 py-0.5 text-sm hover:text-accent"
+        className="rounded-md border border-border bg-card px-2 py-0.5 text-sm hover:text-primary"
       >
         {t('speakers.cancel')}
       </button>
       {failed && (
-        <span role="alert" className="text-sm text-err">
+        <span role="alert" className="text-sm text-destructive">
           {t('speakers.renameError')}
         </span>
       )}

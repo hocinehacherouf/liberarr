@@ -25,16 +25,16 @@ export function LoginPage() {
     e.preventDefault()
     login.mutate({ username, password })
   }
-  const field = 'mt-1 w-full rounded-md border border-line bg-canvas px-3 py-2 text-fg focus:border-accent'
+  const field = 'mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-foreground focus:border-primary'
 
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-4">
       <h1 className="mb-6 flex justify-center text-3xl">
         <Logo />
       </h1>
-      <form onSubmit={submit} className="space-y-4 overflow-hidden rounded-xl border border-line bg-surface p-6 shadow-sm">
+      <form onSubmit={submit} className="space-y-4 overflow-hidden rounded-xl border border-border bg-card p-6 shadow-sm">
         <div aria-hidden="true" className="bg-brand -mx-6 -mt-6 mb-6 h-1" />
-        <label className="block text-sm font-medium text-muted">
+        <label className="block text-sm font-medium text-muted-foreground">
           {t('auth.username')}
           <input
             className={field}
@@ -44,7 +44,7 @@ export function LoginPage() {
             onChange={(e) => setUsername(e.target.value)}
           />
         </label>
-        <label className="block text-sm font-medium text-muted">
+        <label className="block text-sm font-medium text-muted-foreground">
           {t('auth.password')}
           <input
             className={field}
@@ -56,7 +56,7 @@ export function LoginPage() {
           />
         </label>
         {login.isError && (
-          <p role="alert" className="flex gap-2 text-sm text-err">
+          <p role="alert" className="flex gap-2 text-sm text-destructive">
             <span aria-hidden="true">▲</span>
             {message(login.error, t)}
           </p>

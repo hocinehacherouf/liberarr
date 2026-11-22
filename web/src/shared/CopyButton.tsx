@@ -28,12 +28,12 @@ export function CopyButton({ text, label }: { text: string; label: string }) {
         type="button"
         aria-label={label}
         onClick={() => void copy()}
-        className="rounded-md border border-line bg-surface px-3 py-1 text-sm font-semibold hover:text-accent"
+        className="rounded-md border border-border bg-card px-3 py-1 text-sm font-semibold hover:text-primary"
       >
         {t(state === 'copied' ? 'common.copied' : 'common.copy')}
       </button>
       {/* Always rendered, so screen readers pick up the change. */}
-      <span aria-live="polite" className={state === 'failed' ? 'text-sm text-err' : 'sr-only'}>
+      <span aria-live="polite" className={state === 'failed' ? 'text-sm text-destructive' : 'sr-only'}>
         {state === 'idle' ? '' : t(state === 'copied' ? 'common.copied' : 'common.copyFailed')}
       </span>
     </>
