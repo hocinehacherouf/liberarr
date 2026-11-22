@@ -715,7 +715,7 @@ mod tests {
                 api_key: String::new(),
                 admin_password: String::new(),
                 transcribe: profile(),
-                llm: profile(),
+                llm: Some(profile()),
                 vocabulary: Vec::new(),
                 obsidian: home.join("notes"),
                 content_language: Language::En,

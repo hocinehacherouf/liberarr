@@ -27,7 +27,8 @@ pub struct Config {
     pub api_key: String,
     pub admin_password: String,
     pub transcribe: Profile,
-    pub llm: Profile,
+    /// The summary engine is optional: `None` without a summary, the note is exported anyway.
+    pub llm: Option<Profile>,
     /// `LIBERARR_TRANSCRIBE_VOCABULARY`: names and terms to bias the transcription toward.
     pub vocabulary: Vec<String>,
     pub obsidian: PathBuf,
@@ -172,6 +173,11 @@ fn load_from(
             routing_only,
         })
     };
+    // `none`, or nothing at all (provider, URL and model), turns the summary off.
+    let summary_engine = !get("LIBERARR_LLM_PROVIDER").is_some_and(|v| v.trim() == "none")
+        && ["PROVIDER", "BASE_URL", "MODEL"]
+            .iter()
+            .any(|k| get(&format!("LIBERARR_LLM_{k}")).is_some_and(|v| !is_unset(&v)));
     let configured = get("LIBERARR_CONTENT_LANGUAGE").filter(|v| !v.trim().is_empty());
     let content_language_set = configured.is_some();
     let content_language = match configured {
@@ -185,7 +191,9 @@ fn load_from(
         api_key: secret("LIBERARR_API_KEY")?,
         admin_password: secret("LIBERARR_ADMIN_PASSWORD")?,
         transcribe: profile("TRANSCRIBE", Step::Transcribe)?,
-        llm: profile("LLM", Step::Summarize)?,
+        llm: summary_engine
+            .then(|| profile("LLM", Step::Summarize))
+            .transpose()?,
         vocabulary: get("LIBERARR_TRANSCRIBE_VOCABULARY")
             .map(|v| {
                 v.split(',')
@@ -295,9 +303,12 @@ LIBERARR_LLM_MODEL=gpt
             }
             load_text(&t)
         };
-        assert_eq!(or(Some("azure")).ok().unwrap().llm.routing_only, ["azure"]);
+        assert_eq!(
+            or(Some("azure")).ok().unwrap().llm.unwrap().routing_only,
+            ["azure"]
+        );
         for none in [None, Some("")] {
-            assert!(or(none).ok().unwrap().llm.routing_only.is_empty());
+            assert!(or(none).ok().unwrap().llm.unwrap().routing_only.is_empty());
         }
         for bad in ["azure,", "Azure!", "-"] {
             let msg = or(Some(bad)).err().unwrap();
@@ -329,6 +340,31 @@ LIBERARR_LLM_MODEL=gpt
         assert!(!msg.contains("sk-b"), "{msg}");
         // `openai` still works, as an alias of `openai-compatible`.
         let cfg = load_text(&provider_line("LIBERARR_LLM_PROVIDER", "openai")).unwrap();
-        assert_eq!(cfg.llm.provider, Provider::Compatible);
+        assert_eq!(cfg.llm.unwrap().provider, Provider::Compatible);
+    }
+
+    #[test]
+    fn summary_engine_is_optional() {
+        let llm_lines = |keep: bool| -> String {
+            VALID
+                .lines()
+                .filter(|l| {
+                    keep || !["BASE_URL", "MODEL"]
+                        .iter()
+                        .any(|k| l.contains(&format!("LLM_{k}")))
+                })
+                .map(|l| format!("{l}\n"))
+                .collect()
+        };
+        // Nothing about the summary: off.
+        assert!(load_text(&llm_lines(false)).unwrap().llm.is_none());
+        // `none` wins over the other LLM lines.
+        let off = load_text(&provider_line("LIBERARR_LLM_PROVIDER", "none")).unwrap();
+        assert!(off.llm.is_none());
+        // A URL and a model without a provider stay an openai-compatible gateway.
+        let llm = load_text(&llm_lines(true)).unwrap().llm.unwrap();
+        assert_eq!(llm.provider, Provider::Compatible);
+        // `none` is for the summary only.
+        assert!(load_text(&provider_line("LIBERARR_TRANSCRIBE_PROVIDER", "none")).is_err());
     }
 }

@@ -3,12 +3,12 @@
 //! `LIBERARR_CONTENT_LANGUAGE` and `LIBERARR_OBSIDIAN_DIR`), never from the command line.
 //! Same rules as the questions: a value already set in the `.env` wins and is never overwritten.
 use super::{
-    CONTENT_LANGUAGE, Current, NOTES_DIR, Plan, STEPS, SetupResult, current, current_provider,
-    notes_dir, provider_invalid, routing_var, secrets, valid_url,
+    CONTENT_LANGUAGE, Current, NONE, NOTES_DIR, Plan, STEPS, SetupResult, current,
+    current_provider, notes_dir, provider_invalid, routing_var, secrets, valid_url,
 };
 use crate::config::{is_unset, parse_routing};
 use crate::providers;
-use liberarr_core::ai::Provider;
+use liberarr_core::ai::{Provider, Step};
 use liberarr_core::lang::Language;
 use rust_i18n::t;
 use std::collections::HashMap;
@@ -40,10 +40,22 @@ pub fn from_env(
         t!("setup.nonint_missing", var = k).into_owned().into()
     };
     for (step, [provider_var, url_var, key_var, model_var], _) in STEPS {
-        let provider = match current_provider(existing, provider_var, url_var) {
+        let provider = match current_provider(existing, step, provider_var, url_var) {
             Current::Is(p) => p,
-            Current::Unset | Current::Off => {
-                let v = from_env(provider_var)?.ok_or_else(|| missing(provider_var))?;
+            Current::Off => continue,
+            Current::Unset => {
+                let given = from_env(provider_var)?;
+                // The summary is optional: `none`, or nothing about it at all, turns it off.
+                if step == Step::Summarize
+                    && (given.as_deref() == Some(NONE)
+                        || (given.is_none()
+                            && from_env(url_var)?.is_none()
+                            && from_env(model_var)?.is_none()))
+                {
+                    plan.updates.push((provider_var, NONE.to_string()));
+                    continue;
+                }
+                let v = given.ok_or_else(|| missing(provider_var))?;
                 let p = Provider::parse(&v).filter(|p| p.can(step)).ok_or_else(|| {
                     t!("setup.nonint_provider_invalid", var = provider_var).into_owned()
                 })?;

@@ -258,3 +258,79 @@ fn non_interactive_writes_a_usable_notes_folder() {
     });
     assert!(relative.is_err());
 }
+
+/// The summary is optional: `none` is written when nothing is given (non-interactive), is read
+/// back as a choice, and is never asked about again. Transcription stays required.
+#[test]
+fn the_summary_engine_can_be_left_out() {
+    let without = ENV
+        .lines()
+        .filter(|l| !l.starts_with("LIBERARR_LLM_"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let env = parse_env(&without);
+    let plan = from_env(&env, Language::En, Path::new("/h"), |_| None).unwrap();
+    assert_eq!(
+        plan.updates,
+        [("LIBERARR_LLM_PROVIDER", "none".to_string())]
+    );
+    // A URL given without a provider is not silently dropped.
+    let url = |k: &str| (k == "LIBERARR_LLM_BASE_URL").then(|| "https://gw.example/v1".to_string());
+    assert!(from_env(&env, Language::En, Path::new("/h"), url).is_err());
+    // Nothing for transcription: still refused.
+    let none = parse_env(
+        &ENV.replace("LIBERARR_TRANSCRIBE_PROVIDER=mistral\n", "")
+            .replace(
+                "LIBERARR_TRANSCRIBE_BASE_URL=https://api.mistral.ai/v1\n",
+                "",
+            ),
+    );
+    assert!(from_env(&none, Language::En, Path::new("/h"), |_| None).is_err());
+
+    let off = ENV
+        .replace(
+            "LIBERARR_LLM_PROVIDER=mistral",
+            "LIBERARR_LLM_PROVIDER=none",
+        )
+        .replace("LIBERARR_LLM_API_KEY=stored-llm-key\n", "")
+        .replace("LIBERARR_LLM_BASE_URL=https://api.mistral.ai/v1\n", "")
+        .replace("LIBERARR_LLM_MODEL=mistral-small-2603\n", "");
+    let env = parse_env(&off);
+    assert_eq!(
+        current_provider(
+            &env,
+            Step::Summarize,
+            "LIBERARR_LLM_PROVIDER",
+            "LIBERARR_LLM_BASE_URL"
+        ),
+        Current::Off
+    );
+    // Interactive: only the keep-or-reconfigure question, nothing about the summary.
+    let mut p = Fake::default();
+    p.choices.push_back(Picked::Option(0));
+    let plan = run_setup(&mut p, &env, Language::En, Path::new("/h"), &ok, &no_routes).unwrap();
+    assert!(plan.updates.is_empty());
+    assert!(
+        !p.seen
+            .iter()
+            .any(|s| s.contains(&*t!("init.summarize.provider")))
+    );
+    // Non-interactive: nothing to add, nothing fails.
+    let plan = from_env(&env, Language::En, Path::new("/h"), |_| None).unwrap();
+    assert!(plan.updates.is_empty());
+
+    // Reconfigure the summary from a provider to `none` (the last entry, index 4).
+    let env = parse_env(ENV);
+    let mut p = Fake::default();
+    // Reconfigure, transcription (mistral, first model), summary (none), content language.
+    p.choices.extend([
+        Picked::Option(1),
+        Picked::Option(1),
+        Picked::Option(0),
+        Picked::Option(4),
+        Picked::Option(0),
+    ]);
+    p.confirms.push_back(false);
+    let plan = run_setup(&mut p, &env, Language::En, Path::new("/h"), &ok, &no_routes).unwrap();
+    assert_eq!(written(&plan)["LIBERARR_LLM_PROVIDER"], "none");
+}

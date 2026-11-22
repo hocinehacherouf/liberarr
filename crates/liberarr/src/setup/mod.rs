@@ -238,19 +238,23 @@ pub(crate) fn secrets(env: &HashMap<String, String>) -> SetupResult<Plan> {
 pub(crate) enum Current {
     /// Not chosen yet, or a value that is not a provider (`anthropic`, a typo): ask again.
     Unset,
-    /// No provider for this step, by choice. Not produced yet.
-    #[allow(dead_code)]
+    /// No provider for this step, by choice (`none`, summary only): nothing more to ask.
     Off,
     Is(Provider),
 }
 
+/// The value that turns the summary off.
+pub(crate) const NONE: &str = "none";
+
 /// The provider already chosen for a step. A base URL without a provider is a gateway.
 pub(crate) fn current_provider(
     env: &HashMap<String, String>,
+    step: Step,
     provider_var: &str,
     url_var: &str,
 ) -> Current {
     match current(env, provider_var) {
+        Some(v) if v == NONE && step == Step::Summarize => Current::Off,
         Some(v) => Provider::parse(&v).map_or(Current::Unset, Current::Is),
         None => current(env, url_var).map_or(Current::Unset, |_| Current::Is(Provider::Compatible)),
     }
@@ -259,7 +263,7 @@ pub(crate) fn current_provider(
 /// The provider line holds a value that is not a provider: what was stored for the step (URL,
 /// key, model, routing) belonged to something else and is ignored.
 pub(crate) fn provider_invalid(env: &HashMap<String, String>, provider_var: &str) -> bool {
-    current(env, provider_var).is_some_and(|v| Provider::parse(&v).is_none())
+    current(env, provider_var).is_some_and(|v| v != NONE && Provider::parse(&v).is_none())
 }
 
 /// Secrets to generate, then the missing provider settings. When everything is already set and
@@ -318,17 +322,23 @@ fn configure(
     for (step, [provider_var, url_var, key_var, model_var], [provider_q, url_q, key_q, model_q]) in
         STEPS
     {
-        let known = match current_provider(env, provider_var, url_var) {
+        let cur = current_provider(env, step, provider_var, url_var);
+        let known = match cur {
             Current::Is(p) => Some(p),
             Current::Unset | Current::Off => None,
         };
         let provider = match known.filter(|_| !reconf) {
             Some(known) => known,
+            // Chosen off: no URL, key or model question, now or later.
+            None if cur == Current::Off && !reconf => continue,
             None => {
                 if step == Step::Summarize && claude_ready() {
                     p.info(&t!("init.claude_detected"));
                 }
-                let chosen = ask_provider(p, &t!(provider_q), step, known)?;
+                let Some(chosen) = ask_provider(p, &t!(provider_q), step, known)? else {
+                    set(&mut updates, env, provider_var, NONE.to_string());
+                    continue;
+                };
                 set(&mut updates, env, provider_var, chosen.as_str().to_string());
                 chosen
             }
@@ -510,8 +520,8 @@ fn ask_provider(
     question: &str,
     step: Step,
     known: Option<Provider>,
-) -> SetupResult<Provider> {
-    let options: Vec<Provider> = [
+) -> SetupResult<Option<Provider>> {
+    let mut options: Vec<Option<Provider>> = [
         Provider::Compatible,
         Provider::Mistral,
         Provider::OpenRouter,
@@ -519,15 +529,30 @@ fn ask_provider(
     ]
     .into_iter()
     .filter(|o| o.can(step))
+    .map(Some)
     .collect();
+    // Only the summary is optional, and `none` is the default: never a vendor by default.
+    let summary = step == Step::Summarize;
+    if summary {
+        options.push(None);
+    }
     let choices: Vec<Choice> = options
         .iter()
-        .map(|o| Choice {
-            value: o.as_str().to_string(),
-            note: String::new(),
+        .map(|o| match o {
+            Some(o) => Choice {
+                value: o.as_str().to_string(),
+                note: String::new(),
+            },
+            None => Choice {
+                value: NONE.to_string(),
+                note: t!("init.summarize.none").into_owned(),
+            },
         })
         .collect();
-    let default = options.iter().position(|o| Some(*o) == known).unwrap_or(0);
+    let default = options
+        .iter()
+        .position(|o| o.is_some() && *o == known)
+        .unwrap_or(if summary { options.len() - 1 } else { 0 });
     loop {
         match p.choose(question, &choices, Some(default))? {
             Picked::Option(i) => return Ok(options[i]),
