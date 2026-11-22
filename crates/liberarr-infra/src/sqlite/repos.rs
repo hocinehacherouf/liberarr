@@ -5,11 +5,14 @@ use liberarr_core::diarization::{Diarization, DiarizationRepo, SpeakerTurn};
 use liberarr_core::recordings::{
     NewRecording, Recording, RecordingItem, RecordingRepo, RecordingStatus, Source,
 };
-use liberarr_core::summaries::{MeetingSummary, SummaryRepo};
-use liberarr_core::transcription::{Segment, Transcript, TranscriptRepo};
+use liberarr_core::summaries::{MeetingSummary, SummaryEditRepo, SummaryRepo, SummaryText};
+use liberarr_core::transcription::{
+    Segment, SegmentChange, SegmentEdit, Transcript, TranscriptEditRepo, TranscriptRepo,
+    apply_edits, prepare_edits,
+};
 use liberarr_core::{Error, Result};
 use rusqlite::types::Type;
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -118,12 +121,12 @@ impl RecordingRepo for Db {
 
     /// A queued or running job makes it processing; else a step whose latest job failed makes it
     /// failed (so a failed optional step still shows after the jobs that follow it). The summary
-    /// title wins over the recording title.
+    /// title wins over the recording title, and the owner's title over both.
     /// "No speech" is derived from the stored transcript, not stored on its own.
     async fn list_items(&self) -> Result<Vec<RecordingItem>> {
         self.run(|c| {
             let mut stmt = c.prepare(
-                "SELECT r.id, COALESCE(s.title, r.title), r.source, r.duration_s, r.created_at,
+                "SELECT r.id, COALESCE(e.title, s.title, r.title), r.source, r.duration_s, r.created_at,
                         EXISTS (SELECT 1 FROM jobs WHERE recording_id = r.id
                                 AND status IN ('queued', 'running')),
                         (SELECT f.step FROM jobs f
@@ -134,6 +137,7 @@ impl RecordingRepo for Db {
                         COALESCE(trim(t.text, char(32, 9, 10, 13)) = '', 0)
                  FROM recordings r
                  LEFT JOIN summaries s ON s.recording_id = r.id
+                 LEFT JOIN summary_edits e ON e.recording_id = r.id
                  LEFT JOIN transcripts t ON t.recording_id = r.id
                  ORDER BY r.created_at DESC, r.id DESC",
             )?;
@@ -163,6 +167,45 @@ impl RecordingRepo for Db {
     }
 }
 
+/// The engine's transcript as stored, without the owner's edits.
+fn read_raw_transcript(c: &Connection, recording_id: i64) -> rusqlite::Result<Option<Transcript>> {
+    c.query_row(
+        "SELECT engine, language, text, segments, has_timestamps FROM transcripts
+         WHERE recording_id = ?1",
+        [recording_id],
+        |r| {
+            let segments: Vec<(f64, f64, String)> =
+                serde_json::from_str(&r.get::<_, String>(3)?).map_err(|_| corrupt_json(3))?;
+            Ok(Transcript {
+                engine: r.get(0)?,
+                language: r.get(1)?,
+                text: r.get(2)?,
+                segments: segments
+                    .into_iter()
+                    .map(|(start, end, text)| Segment { start, end, text })
+                    .collect(),
+                has_timestamps: r.get(4)?,
+            })
+        },
+    )
+    .optional()
+}
+
+fn read_transcript_edits(c: &Connection, recording_id: i64) -> rusqlite::Result<Vec<SegmentEdit>> {
+    let mut stmt = c.prepare(
+        "SELECT segment, original, text FROM transcript_edits
+         WHERE recording_id = ?1 ORDER BY segment",
+    )?;
+    stmt.query_map([recording_id], |r| {
+        Ok(SegmentEdit {
+            index: r.get::<_, i64>(0)? as usize,
+            original: r.get(1)?,
+            text: r.get(2)?,
+        })
+    })?
+    .collect()
+}
+
 impl TranscriptRepo for Db {
     async fn save(&self, recording_id: i64, t: &Transcript) -> Result<()> {
         // Segments as `[start, end, text]` triples.
@@ -175,7 +218,22 @@ impl TranscriptRepo for Db {
         .map_err(storage)?;
         let t = t.clone();
         self.run(move |c| {
-            c.execute(
+            let tx = write_tx(c)?;
+            let old: Option<(String, String)> = tx
+                .query_row(
+                    "SELECT text, segments FROM transcripts WHERE recording_id = ?1",
+                    [recording_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()?;
+            // The owner's edits describe the old engine text: a rerun that changes it makes them wrong.
+            if old.is_some_and(|(text, segs)| text != t.text || segs != segments) {
+                tx.execute(
+                    "DELETE FROM transcript_edits WHERE recording_id = ?1",
+                    [recording_id],
+                )?;
+            }
+            tx.execute(
                 "INSERT INTO transcripts (recording_id, engine, language, text, segments, has_timestamps)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT(recording_id) DO UPDATE SET engine = excluded.engine,
@@ -183,36 +241,69 @@ impl TranscriptRepo for Db {
                    segments = excluded.segments, has_timestamps = excluded.has_timestamps",
                 params![recording_id, t.engine, t.language, t.text, segments, t.has_timestamps],
             )?;
-            Ok(())
+            tx.commit()
         })
         .await
     }
 
     async fn get(&self, recording_id: i64) -> Result<Option<Transcript>> {
+        Ok(self
+            .get_with_edits(recording_id)
+            .await?
+            .map(|(raw, edits)| apply_edits(raw, &edits)))
+    }
+}
+
+impl TranscriptEditRepo for Db {
+    async fn get_with_edits(
+        &self,
+        recording_id: i64,
+    ) -> Result<Option<(Transcript, Vec<SegmentEdit>)>> {
         self.run(move |c| {
-            c.query_row(
-                "SELECT engine, language, text, segments, has_timestamps FROM transcripts
-                 WHERE recording_id = ?1",
-                [recording_id],
-                |r| {
-                    let segments: Vec<(f64, f64, String)> =
-                        serde_json::from_str(&r.get::<_, String>(3)?)
-                            .map_err(|_| corrupt_json(3))?;
-                    Ok(Transcript {
-                        engine: r.get(0)?,
-                        language: r.get(1)?,
-                        text: r.get(2)?,
-                        segments: segments
-                            .into_iter()
-                            .map(|(start, end, text)| Segment { start, end, text })
-                            .collect(),
-                        has_timestamps: r.get(4)?,
-                    })
-                },
-            )
-            .optional()
+            // One read transaction: a concurrent save cannot slip between the raw row and the edits.
+            let tx = c.transaction()?;
+            let Some(raw) = read_raw_transcript(&tx, recording_id)? else {
+                return Ok(None);
+            };
+            let edits = read_transcript_edits(&tx, recording_id)?;
+            Ok(Some((raw, edits)))
         })
         .await
+    }
+
+    async fn set_edits(&self, recording_id: i64, changes: &[SegmentChange]) -> Result<()> {
+        let changes = changes.to_vec();
+        // A core error cannot leave `run`: it is returned inside, and the transaction rolls back on drop.
+        self.run(move |c| {
+            let tx = write_tx(c)?;
+            let Some(raw) = read_raw_transcript(&tx, recording_id)? else {
+                return Ok(Err(Error::NotFound("transcript".into())));
+            };
+            let stored = read_transcript_edits(&tx, recording_id)?;
+            let edits = match prepare_edits(&raw, &stored, &changes) {
+                Ok(edits) => edits,
+                Err(e) => return Ok(Err(e)),
+            };
+            for e in edits {
+                if e.reverts() {
+                    tx.execute(
+                        "DELETE FROM transcript_edits WHERE recording_id = ?1 AND segment = ?2",
+                        params![recording_id, e.index as i64],
+                    )?;
+                } else {
+                    tx.execute(
+                        "INSERT INTO transcript_edits (recording_id, segment, original, text)
+                         VALUES (?1, ?2, ?3, ?4)
+                         ON CONFLICT(recording_id, segment) DO UPDATE SET
+                           original = excluded.original, text = excluded.text",
+                        params![recording_id, e.index as i64, e.original, e.text],
+                    )?;
+                }
+            }
+            tx.commit()?;
+            Ok(Ok(()))
+        })
+        .await?
     }
 }
 
@@ -339,12 +430,107 @@ impl DiarizationRepo for Db {
     }
 }
 
+fn read_summary(c: &Connection, recording_id: i64) -> rusqlite::Result<Option<MeetingSummary>> {
+    c.query_row(
+        "SELECT title, summary_md, mindmap, actions FROM summaries WHERE recording_id = ?1",
+        [recording_id],
+        summary_row,
+    )
+    .optional()
+}
+
+fn summary_row(r: &rusqlite::Row) -> rusqlite::Result<MeetingSummary> {
+    Ok(MeetingSummary {
+        title: r.get(0)?,
+        summary_md: r.get(1)?,
+        mindmap: r.get(2)?,
+        actions: serde_json::from_str(&r.get::<_, String>(3)?).map_err(|_| corrupt_json(3))?,
+    })
+}
+
+impl SummaryEditRepo for Db {
+    async fn get_with_edit(
+        &self,
+        recording_id: i64,
+    ) -> Result<Option<(MeetingSummary, Option<SummaryText>)>> {
+        self.run(move |c| {
+            let tx = c.transaction()?;
+            let Some(generated) = read_summary(&tx, recording_id)? else {
+                return Ok(None);
+            };
+            let edit = tx
+                .query_row(
+                    "SELECT title, summary_md FROM summary_edits WHERE recording_id = ?1",
+                    [recording_id],
+                    |r| {
+                        Ok(SummaryText {
+                            title: r.get(0)?,
+                            summary_md: r.get(1)?,
+                        })
+                    },
+                )
+                .optional()?;
+            Ok(Some((generated, edit)))
+        })
+        .await
+    }
+
+    async fn set_edit(
+        &self,
+        recording_id: i64,
+        generated: &SummaryText,
+        edit: &SummaryText,
+    ) -> Result<()> {
+        let (generated, edit) = (generated.clone(), edit.clone());
+        self.run(move |c| {
+            let tx = write_tx(c)?;
+            let Some(stored) = read_summary(&tx, recording_id)? else {
+                return Ok(Err(Error::NotFound("summary".into())));
+            };
+            if stored.title != generated.title || stored.summary_md != generated.summary_md {
+                return Ok(Err(Error::Conflict("summary".into())));
+            }
+            if edit == generated {
+                tx.execute(
+                    "DELETE FROM summary_edits WHERE recording_id = ?1",
+                    [recording_id],
+                )?;
+            } else {
+                tx.execute(
+                    "INSERT INTO summary_edits (recording_id, title, summary_md) VALUES (?1, ?2, ?3)
+                     ON CONFLICT(recording_id) DO UPDATE SET title = excluded.title,
+                       summary_md = excluded.summary_md",
+                    params![recording_id, edit.title, edit.summary_md],
+                )?;
+            }
+            tx.commit()?;
+            Ok(Ok(()))
+        })
+        .await?
+    }
+}
+
 impl SummaryRepo for Db {
     async fn save(&self, recording_id: i64, s: &MeetingSummary) -> Result<()> {
         let actions = serde_json::to_string(&s.actions).map_err(storage)?;
         let s = s.clone();
         self.run(move |c| {
-            c.execute(
+            let tx = write_tx(c)?;
+            let old: Option<(String, String)> = tx
+                .query_row(
+                    "SELECT title, summary_md FROM summaries WHERE recording_id = ?1",
+                    [recording_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()?;
+            // Actions and mind map are not editable, so a change there keeps the owner's text.
+            if old.is_some_and(|(title, md)| title != s.title || md != s.summary_md) {
+                tx.execute(
+                    "DELETE FROM summary_edits WHERE recording_id = ?1",
+                    [recording_id],
+                )?;
+            }
+            tx.execute(
                 "INSERT INTO summaries (recording_id, title, summary_md, mindmap, actions)
                  VALUES (?1, ?2, ?3, ?4, ?5)
                  ON CONFLICT(recording_id) DO UPDATE SET title = excluded.title,
@@ -352,7 +538,7 @@ impl SummaryRepo for Db {
                    actions = excluded.actions",
                 params![recording_id, s.title, s.summary_md, s.mindmap, actions],
             )?;
-            Ok(())
+            tx.commit()
         })
         .await
     }
@@ -360,17 +546,13 @@ impl SummaryRepo for Db {
     async fn get(&self, recording_id: i64) -> Result<Option<MeetingSummary>> {
         self.run(move |c| {
             c.query_row(
-                "SELECT title, summary_md, mindmap, actions FROM summaries WHERE recording_id = ?1",
+                "SELECT COALESCE(e.title, s.title), COALESCE(e.summary_md, s.summary_md),
+                        s.mindmap, s.actions
+                 FROM summaries s
+                 LEFT JOIN summary_edits e ON e.recording_id = s.recording_id
+                 WHERE s.recording_id = ?1",
                 [recording_id],
-                |r| {
-                    Ok(MeetingSummary {
-                        title: r.get(0)?,
-                        summary_md: r.get(1)?,
-                        mindmap: r.get(2)?,
-                        actions: serde_json::from_str(&r.get::<_, String>(3)?)
-                            .map_err(|_| corrupt_json(3))?,
-                    })
-                },
+                summary_row,
             )
             .optional()
         })

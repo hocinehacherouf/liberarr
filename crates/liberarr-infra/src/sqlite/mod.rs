@@ -675,4 +675,271 @@ mod tests {
         assert_eq!(db.known("dev-a").await.unwrap(), [7, 9].into());
         assert!(db.known("dev-b").await.unwrap().is_empty());
     }
+
+    fn timed(texts: &[&str]) -> liberarr_core::transcription::Transcript {
+        use liberarr_core::transcription::{Segment, Transcript};
+        Transcript {
+            engine: "e".into(),
+            language: None,
+            text: texts.iter().map(|t| t.trim()).collect::<Vec<_>>().join(" "),
+            segments: texts
+                .iter()
+                .enumerate()
+                .map(|(i, t)| Segment {
+                    start: i as f64 * 2.0,
+                    end: i as f64 * 2.0 + 1.0,
+                    text: (*t).into(),
+                })
+                .collect(),
+            has_timestamps: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn transcript_edits_overlay_the_engine_text() {
+        use liberarr_core::Error;
+        use liberarr_core::transcription::{
+            SegmentChange, SegmentEdit, TranscriptEditRepo, TranscriptRepo,
+        };
+        let t = TempDb::new("edits");
+        let db = Db::open(&t.path()).unwrap();
+        let id = db.add(new_rec("h1")).await.unwrap();
+        let raw = timed(&[" Bonjour Jon", " ça va"]);
+        TranscriptRepo::save(&db, id, &raw).await.unwrap();
+        let change = |index, current: &str, text: &str| SegmentChange {
+            index,
+            current: current.into(),
+            text: text.into(),
+        };
+
+        db.set_edits(id, &[change(0, " Bonjour Jon", "Bonjour John")])
+            .await
+            .unwrap();
+        assert_eq!(
+            TranscriptRepo::get(&db, id).await.unwrap().unwrap().text,
+            "Bonjour John ça va"
+        );
+        let (stored, _) = db.get_with_edits(id).await.unwrap().unwrap();
+        assert_eq!(stored, raw, "rule 5: the engine's text is untouched");
+        let first = SegmentEdit {
+            index: 0,
+            original: " Bonjour Jon".into(),
+            text: "Bonjour John".into(),
+        };
+        assert_eq!(
+            db.get_with_edits(id).await.unwrap().unwrap().1,
+            std::slice::from_ref(&first)
+        );
+
+        // A second tab still showing the engine's text: refused, and the whole batch with it.
+        let err = db
+            .set_edits(
+                id,
+                &[
+                    change(1, " ça va", ""),
+                    change(0, " Bonjour Jon", "Bonjour Jo"),
+                ],
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::Conflict(_)), "{err:?}");
+        let err = db.set_edits(id, &[change(2, "x", "y")]).await.unwrap_err();
+        assert!(matches!(err, Error::NotFound(_)), "{err:?}");
+        assert_eq!(db.get_with_edits(id).await.unwrap().unwrap().1, [first]);
+
+        // A removed segment displays "": that is what the restore sends as current.
+        db.set_edits(id, &[change(1, " ça va", "")]).await.unwrap();
+        assert_eq!(
+            TranscriptRepo::get(&db, id).await.unwrap().unwrap().text,
+            "Bonjour John"
+        );
+        db.set_edits(id, &[change(1, "", " ça va")]).await.unwrap();
+        // Back to the original (spacing aside): the edit is deleted, no "edited" mark is left.
+        db.set_edits(id, &[change(0, "Bonjour John", "Bonjour Jon ")])
+            .await
+            .unwrap();
+        assert!(db.get_with_edits(id).await.unwrap().unwrap().1.is_empty());
+        let other = db.add(new_rec("h2")).await.unwrap();
+        assert!(matches!(
+            db.set_edits(other, &[change(0, "a", "b")]).await,
+            Err(Error::NotFound(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_new_transcript_drops_the_edits_only_when_it_differs() {
+        use liberarr_core::transcription::{SegmentChange, TranscriptEditRepo, TranscriptRepo};
+        let t = TempDb::new("edits-drop");
+        let db = Db::open(&t.path()).unwrap();
+        let id = db.add(new_rec("h1")).await.unwrap();
+        let raw = timed(&[" Bonjour Jon", " ça va"]);
+        TranscriptRepo::save(&db, id, &raw).await.unwrap();
+        let e = SegmentChange {
+            index: 0,
+            current: " Bonjour Jon".into(),
+            text: "Bonjour John".into(),
+        };
+        db.set_edits(id, &[e]).await.unwrap();
+
+        TranscriptRepo::save(&db, id, &raw).await.unwrap(); // identical rerun
+        assert_eq!(db.get_with_edits(id).await.unwrap().unwrap().1.len(), 1);
+        TranscriptRepo::save(&db, id, &timed(&[" Bonjour, Jon", " ça va"]))
+            .await
+            .unwrap();
+        assert!(db.get_with_edits(id).await.unwrap().unwrap().1.is_empty());
+        assert_eq!(
+            TranscriptRepo::get(&db, id).await.unwrap().unwrap().text,
+            "Bonjour, Jon ça va"
+        );
+    }
+
+    #[tokio::test]
+    async fn summary_edit_overlays_guards_and_drops() {
+        use liberarr_core::Error;
+        use liberarr_core::summaries::{
+            Action, MeetingSummary, SummaryEditRepo, SummaryRepo, SummaryText,
+        };
+        let t = TempDb::new("summary-edit");
+        let db = Db::open(&t.path()).unwrap();
+        let id = db.add(new_rec("h1")).await.unwrap();
+        let summary = |title: &str, md: &str| MeetingSummary {
+            title: title.into(),
+            summary_md: md.into(),
+            mindmap: "mindmap\n  root".into(),
+            actions: vec![Action {
+                action: "call Bob".into(),
+                owner: None,
+                due: None,
+                start: None,
+                done: false,
+            }],
+        };
+        let text = |title: &str, md: &str| SummaryText {
+            title: title.into(),
+            summary_md: md.into(),
+        };
+        SummaryRepo::save(&db, id, &summary("Point", "gen"))
+            .await
+            .unwrap();
+
+        db.set_edit(id, &text("Point", "gen"), &text("Point hebdo", "mine"))
+            .await
+            .unwrap();
+        let s = SummaryRepo::get(&db, id).await.unwrap().unwrap();
+        assert_eq!(
+            (s.title.as_str(), s.summary_md.as_str()),
+            ("Point hebdo", "mine")
+        );
+        assert_eq!(
+            db.list_items().await.unwrap()[0].title.as_deref(),
+            Some("Point hebdo")
+        );
+        let (generated, edit) = db.get_with_edit(id).await.unwrap().unwrap();
+        assert_eq!(
+            (generated.title.as_str(), edit),
+            ("Point", Some(text("Point hebdo", "mine")))
+        );
+        let err = db
+            .set_edit(id, &text("Other", "gen"), &text("x", "y"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::Conflict(_)), "{err:?}");
+
+        // Ticking an action, or a new summary with the same text, keeps the edit.
+        assert!(db.set_action_done(id, 0, "call Bob", true).await.unwrap());
+        let mut same = summary("Point", "gen");
+        same.actions.clear();
+        SummaryRepo::save(&db, id, &same).await.unwrap();
+        assert!(db.get_with_edit(id).await.unwrap().unwrap().1.is_some());
+        // A different summary drops it.
+        SummaryRepo::save(&db, id, &summary("Point", "new"))
+            .await
+            .unwrap();
+        assert!(db.get_with_edit(id).await.unwrap().unwrap().1.is_none());
+        assert_eq!(
+            SummaryRepo::get(&db, id).await.unwrap().unwrap().summary_md,
+            "new"
+        );
+        // Restoring the generated version deletes the overlay.
+        db.set_edit(id, &text("Point", "new"), &text("Point 2", "new"))
+            .await
+            .unwrap();
+        db.set_edit(id, &text("Point", "new"), &text("Point", "new"))
+            .await
+            .unwrap();
+        assert!(db.get_with_edit(id).await.unwrap().unwrap().1.is_none());
+        let other = db.add(new_rec("h2")).await.unwrap();
+        assert!(matches!(
+            db.set_edit(other, &text("a", "b"), &text("c", "d")).await,
+            Err(Error::NotFound(_))
+        ));
+    }
+
+    /// Decision 3: the note is corrected, like every reader of `TranscriptRepo::get` (the summary step included).
+    #[tokio::test]
+    async fn the_note_uses_the_corrected_transcript_and_summary() {
+        use crate::files::FsNoteStore;
+        use liberarr_core::exports::ExportToObsidian;
+        use liberarr_core::summaries::{MeetingSummary, SummaryEditRepo, SummaryRepo, SummaryText};
+        use liberarr_core::transcription::{SegmentChange, TranscriptEditRepo, TranscriptRepo};
+        let t = TempDb::new("edits-note");
+        let db = Db::open(&t.path()).unwrap();
+        let id = db.add(new_rec("h1")).await.unwrap();
+        TranscriptRepo::save(&db, id, &timed(&[" Bonjour Jon", " euh euh", " merci"]))
+            .await
+            .unwrap();
+        let generated = SummaryText {
+            title: "Point".into(),
+            summary_md: "generated text".into(),
+        };
+        let s = MeetingSummary {
+            title: generated.title.clone(),
+            summary_md: generated.summary_md.clone(),
+            mindmap: "mindmap\n  root".into(),
+            actions: vec![],
+        };
+        SummaryRepo::save(&db, id, &s).await.unwrap();
+        let e = |index, current: &str, text: &str| SegmentChange {
+            index,
+            current: current.into(),
+            text: text.into(),
+        };
+        db.set_edits(
+            id,
+            &[e(0, " Bonjour Jon", "Bonjour John"), e(1, " euh euh", "")],
+        )
+        .await
+        .unwrap();
+        let mine = SummaryText {
+            title: "Point".into(),
+            summary_md: "my summary".into(),
+        };
+        db.set_edit(id, &generated, &mine).await.unwrap();
+
+        let path = ExportToObsidian {
+            recordings: &db,
+            transcripts: &db,
+            summaries: &db,
+            speakers: &db,
+            notes: &FsNoteStore,
+            vault: t.0.join("vault"),
+            tz: jiff::tz::TimeZone::UTC,
+            lang: liberarr_core::lang::Language::En,
+        }
+        .run(id)
+        .await
+        .unwrap()
+        .unwrap();
+        let note = std::fs::read_to_string(path).unwrap();
+        assert!(
+            note.contains("[00:00] Bonjour John\n[00:04] merci"),
+            "{note}"
+        );
+        assert!(note.contains("my summary"));
+        assert!(
+            !note.contains("euh")
+                && !note.contains("Bonjour Jon\n")
+                && !note.contains("generated text")
+        );
+    }
 }
