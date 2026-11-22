@@ -425,6 +425,83 @@ mod tests {
         AgentCli::new(p, Some(script.into()), model.into(), None)
     }
 
+    /// The full argv each preset must get for model "m1" and the system prompt "be brief":
+    /// dropping any lockdown flag has to fail the test.
+    fn expected_argv(p: Preset) -> Vec<&'static str> {
+        match p {
+            Preset::Claude => vec![
+                "-p",
+                "--output-format",
+                "json",
+                "--no-session-persistence",
+                "--tools",
+                "",
+                "--setting-sources",
+                "",
+                "--disable-slash-commands",
+                "--strict-mcp-config",
+                "--model",
+                "m1",
+                "--system-prompt",
+                "be brief",
+            ],
+            Preset::Copilot => vec![
+                "--output-format",
+                "json",
+                "-s",
+                "--deny-tool",
+                "shell",
+                "--deny-tool",
+                "write",
+                "--deny-tool",
+                "url",
+                "--disable-builtin-mcps",
+                "--disallow-temp-dir",
+                "--no-ask-user",
+                "--no-auto-update",
+                "--sync-session=off",
+                "--no-custom-instructions",
+                "--model",
+                "m1",
+            ],
+            Preset::Codex => vec![
+                "exec",
+                "--skip-git-repo-check",
+                "--sandbox",
+                "read-only",
+                "--color",
+                "never",
+                "--json",
+                "--ignore-user-config",
+                "--ignore-rules",
+                "--ephemeral",
+                "-c",
+                "features.shell_tool=false",
+                "-c",
+                "features.hooks=false",
+                "-c",
+                "web_search=\"disabled\"",
+                "--disable",
+                "apps",
+                "--disable",
+                "plugins",
+                "--disable",
+                "browser_use",
+                "--disable",
+                "computer_use",
+                "--disable",
+                "view_image",
+                "--disable",
+                "multi_agent",
+                "--disable",
+                "image_generation",
+                "-m",
+                "m1",
+                "-",
+            ],
+        }
+    }
+
     #[tokio::test]
     async fn prompt_goes_through_stdin_not_argv() {
         const MARKER: &str = "MARKER-7f3a";
@@ -444,31 +521,12 @@ mod tests {
             assert_eq!(out.unwrap(), REPLY, "{p:?}");
             assert!(stdin.contains(MARKER), "{p:?}");
             assert!(!args.contains(MARKER), "{p:?}");
-            let locks: &[&str] = match p {
-                Preset::Claude => &["--tools"],
-                Preset::Copilot => &["--deny-tool", "--sync-session=off"],
-                Preset::Codex => &[
-                    "features.shell_tool=false",
-                    "--ignore-user-config",
-                    "--ephemeral",
-                ],
-            };
-            for lock in locks {
-                assert!(
-                    args.lines().any(|a| a == *lock),
-                    "{p:?}: {lock} not in {args}"
-                );
-            }
             let lines: Vec<&str> = args.lines().collect();
+            assert_eq!(lines, expected_argv(p), "{p:?}");
             match p {
                 // The system message is a flag for Claude, part of the prompt elsewhere.
                 Preset::Claude => assert!(args.contains("be brief")),
                 _ => assert!(stdin.contains("be brief") && !args.contains("be brief")),
-            }
-            if p == Preset::Codex {
-                assert_eq!(lines[lines.len() - 3..], ["-m", "m1", "-"]);
-            } else {
-                assert!(args.contains("--model\nm1"), "{p:?}");
             }
         }
     }
