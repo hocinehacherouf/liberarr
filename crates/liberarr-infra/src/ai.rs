@@ -16,24 +16,18 @@ pub struct OpenAiCompat {
     base_url: String,
     api_key: String,
     model: String,
-    /// `verbose_json` (segments) or `json` (text only), for models that reject `verbose_json`.
-    ask_segments: bool,
     /// The `provider` object of every request (OpenRouter routing), when set.
     routing: Option<Value>,
-    /// `keywords` of every transcription request (`gpt-transcribe`), when set.
-    keywords: Vec<String>,
     http: reqwest::Client,
 }
 
 impl OpenAiCompat {
-    pub fn new(base_url: String, api_key: String, model: String, ask_segments: bool) -> Self {
+    pub fn new(base_url: String, api_key: String, model: String) -> Self {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key,
             model,
-            ask_segments,
             routing: None,
-            keywords: Vec::new(),
             http: http::client(),
         }
     }
@@ -43,12 +37,6 @@ impl OpenAiCompat {
     pub fn with_routing(mut self, only: &[String]) -> Self {
         self.routing =
             Some(json!({"only": only, "allow_fallbacks": false, "require_parameters": true}));
-        self
-    }
-
-    /// Words or phrases sent as repeated `keywords[]` parts (the spec's multipart array form).
-    pub fn with_keywords(mut self, keywords: Vec<String>) -> Self {
-        self.keywords = keywords;
         self
     }
 
@@ -92,7 +80,7 @@ pub(crate) fn chunk_result(r: &Value) -> Result<ChunkResult> {
         })
         .unwrap_or_default();
     Ok(ChunkResult {
-        // `gpt-transcribe` replies with a `languages` array of `{code}` objects instead; some
+        // Some models reply with a `languages` array of `{code}` objects instead; some
         // compatible gateways send plain strings.
         language: r
             .get("language")
@@ -112,26 +100,16 @@ impl Transcriber for OpenAiCompat {
             // No `language`: recordings mix French and English.
             let form = Form::new()
                 .text("model", self.model.clone())
-                .text(
-                    "response_format",
-                    if self.ask_segments {
-                        "verbose_json"
-                    } else {
-                        "json"
-                    },
-                )
+                .text("response_format", "verbose_json")
                 .part(
                     "file",
                     Part::bytes(audio.to_vec()).file_name(filename.to_string()),
                 );
             // Multipart takes the routing object as a JSON-encoded field.
-            let form = match &self.routing {
+            match &self.routing {
                 Some(routing) => form.text("provider", routing.to_string()),
                 None => form,
-            };
-            self.keywords
-                .iter()
-                .fold(form, |f, k| f.text("keywords[]", k.clone()))
+            }
         };
         let r = self
             .send("audio/transcriptions", TRANSCRIBE_TIMEOUT, false, |b| {
@@ -272,18 +250,6 @@ mod tests {
                 }),
             )
             .route(
-                "/keywords/audio/transcriptions",
-                // Replies with the `keywords[]` parts it received, as a JSON array in the text.
-                post(|body: String| async move {
-                    let seen: Vec<&str> = body
-                        .split("name=\"keywords[]\"\r\n\r\n")
-                        .skip(1)
-                        .filter_map(|rest| Some(rest.split_once("\r\n")?.0))
-                        .collect();
-                    json!({ "text": json!(seen).to_string() }).to_string()
-                }),
-            )
-            .route(
                 "/denied/audio/transcriptions",
                 post(|| async { (StatusCode::UNAUTHORIZED, r#"{"error":{"message":"Incorrect API key provided: sk-...abcd."}}"#) }),
             );
@@ -296,9 +262,8 @@ mod tests {
     #[tokio::test]
     async fn transcribe_parses_verbose_json_and_missing_segments() {
         let base = serve().await;
-        let client = |p: &str| {
-            OpenAiCompat::new(format!("{base}/{p}/"), KEY.into(), "whisper-1".into(), true)
-        };
+        let client =
+            |p: &str| OpenAiCompat::new(format!("{base}/{p}/"), KEY.into(), "whisper-1".into());
 
         let r = client("seg")
             .transcribe(b"audio", "chunk-0.ogg")
@@ -333,7 +298,7 @@ mod tests {
     async fn cut_reply_is_an_error() {
         let base = serve().await;
         for (path, expected) in [("filter", "content filter"), ("length", "token limit")] {
-            let llm = OpenAiCompat::new(format!("{base}/{path}"), KEY.into(), "m".into(), true);
+            let llm = OpenAiCompat::new(format!("{base}/{path}"), KEY.into(), "m".into());
             let msg = llm.complete_json(&[]).await.unwrap_err().to_string();
             assert!(msg.contains(expected), "{msg}");
         }
@@ -344,7 +309,7 @@ mod tests {
     #[tokio::test]
     async fn routing_is_sent_only_when_set() {
         let base = serve().await;
-        let client = OpenAiCompat::new(format!("{base}/echo"), KEY.into(), "m".into(), true);
+        let client = OpenAiCompat::new(format!("{base}/echo"), KEY.into(), "m".into());
         assert_eq!(client.complete_json(&[]).await.unwrap(), "null");
         assert_eq!(client.transcribe(b"a", "c.ogg").await.unwrap().text, "null");
         let routed = client.with_routing(&["azure".to_string()]);
@@ -358,29 +323,10 @@ mod tests {
         }
     }
 
-    /// Vocabulary goes out as the spec's repeated `keywords[]` parts, and only when set.
-    #[tokio::test]
-    async fn keywords_are_sent_only_when_set() {
-        let base = serve().await;
-        let client = || {
-            OpenAiCompat::new(
-                format!("{base}/keywords"),
-                KEY.into(),
-                "gpt-transcribe".into(),
-                false,
-            )
-        };
-        let text = client().transcribe(b"a", "c.ogg").await.unwrap().text;
-        assert_eq!(text, "[]");
-        let with = client().with_keywords(vec!["Liberarr".into(), "Plaud Note".into()]);
-        let text = with.transcribe(b"a", "c.ogg").await.unwrap().text;
-        assert_eq!(text, r#"["Liberarr","Plaud Note"]"#);
-    }
-
     #[tokio::test]
     async fn non_json_reply_is_an_error_not_a_panic() {
         let base = serve().await;
-        let t = OpenAiCompat::new(format!("{base}/html"), KEY.into(), "m".into(), true);
+        let t = OpenAiCompat::new(format!("{base}/html"), KEY.into(), "m".into());
         assert!(t.transcribe(b"audio", "chunk-0.ogg").await.is_err());
     }
 }

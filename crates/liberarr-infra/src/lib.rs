@@ -1,7 +1,6 @@
 //! Adapters implementing the core ports: SQLite, BLE, HTTP AI client, filesystem.
 
 pub mod ai;
-pub mod anthropic;
 pub mod backup;
 pub mod ble;
 pub mod claude_cli;

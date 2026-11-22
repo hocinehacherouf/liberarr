@@ -1,6 +1,6 @@
 //! `<LIBERARR_HOME>/.env` is the one source of secrets and settings (only `LIBERARR_HOME`, which
 //! locates it, comes from the environment). Errors name the variable, never its value.
-use liberarr_core::ai::{Provider, Step, capability, supports};
+use liberarr_core::ai::{Provider, Step};
 use liberarr_core::lang::Language;
 use rust_i18n::t;
 use std::collections::HashMap;
@@ -126,11 +126,22 @@ fn load_from(
         let var = format!("LIBERARR_{p}_PROVIDER");
         let provider = match get(&var).filter(|v| !v.trim().is_empty()) {
             None => Provider::Compatible,
-            Some(v) => Provider::parse(v.trim())
-                .ok_or_else(|| t!("config.provider_unknown", var = var).into_owned())?,
+            Some(v) => Provider::parse(v.trim()).ok_or_else(|| match v.trim() {
+                // The `anthropic` adapter is gone: say what to use instead.
+                "anthropic" => t!(
+                    "config.provider_removed",
+                    var = var,
+                    alternatives = match step {
+                        Step::Transcribe => "mistral, openrouter",
+                        Step::Summarize => "claude, openrouter",
+                    }
+                )
+                .into_owned(),
+                _ => t!("config.provider_unknown", var = var).into_owned(),
+            })?,
         };
         let model = need(&format!("LIBERARR_{p}_MODEL"))?;
-        if !supports(capability(provider, &model), step) {
+        if !provider.can(step) {
             return Err(match step {
                 Step::Transcribe => t!("config.cannot_transcribe", var = var),
                 Step::Summarize => t!("config.cannot_summarize", var = var),
@@ -138,7 +149,7 @@ fn load_from(
             .into_owned());
         }
         // The claude CLI uses its own login: no URL, no key.
-        let (base_url, api_key) = if provider == Provider::Claude {
+        let (base_url, api_key) = if provider.is_cli() {
             (String::new(), String::new())
         } else {
             (
@@ -300,11 +311,24 @@ LIBERARR_LLM_MODEL=gpt
     }
 
     #[test]
-    fn claude_cannot_be_the_transcriber() {
-        let msg = load_text(&provider_line("LIBERARR_TRANSCRIBE_PROVIDER", "anthropic"))
+    fn cli_provider_cannot_be_the_transcriber() {
+        let msg = load_text(&provider_line("LIBERARR_TRANSCRIBE_PROVIDER", "claude"))
             .err()
             .unwrap();
         assert!(msg.contains("LIBERARR_TRANSCRIBE_PROVIDER"), "{msg}");
         assert!(!msg.contains("sk-a"), "{msg}");
+    }
+
+    #[test]
+    fn removed_and_aliased_providers() {
+        // `anthropic` is refused by name, with the key kept out of the message.
+        let msg = load_text(&provider_line("LIBERARR_LLM_PROVIDER", "anthropic"))
+            .err()
+            .unwrap();
+        assert!(msg.contains("LIBERARR_LLM_PROVIDER"), "{msg}");
+        assert!(!msg.contains("sk-b"), "{msg}");
+        // `openai` still works, as an alias of `openai-compatible`.
+        let cfg = load_text(&provider_line("LIBERARR_LLM_PROVIDER", "openai")).unwrap();
+        assert_eq!(cfg.llm.provider, Provider::Compatible);
     }
 }

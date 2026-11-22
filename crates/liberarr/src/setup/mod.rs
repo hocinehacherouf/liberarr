@@ -14,7 +14,7 @@ pub use plain::PlainPrompter;
 
 use crate::config::{is_unset, parse_routing};
 use crate::{models, providers};
-use liberarr_core::ai::{Provider, Step, capability, supports};
+use liberarr_core::ai::{Provider, Step};
 use liberarr_core::lang::Language;
 use rust_i18n::t;
 use std::collections::HashMap;
@@ -233,16 +233,33 @@ pub(crate) fn secrets(env: &HashMap<String, String>) -> SetupResult<Plan> {
     Ok(Plan { updates, password })
 }
 
+/// What the `.env` says about the provider of a step.
+#[derive(PartialEq, Clone, Copy, Debug)]
+pub(crate) enum Current {
+    /// Not chosen yet, or a value that is not a provider (`anthropic`, a typo): ask again.
+    Unset,
+    /// No provider for this step, by choice. Not produced yet.
+    #[allow(dead_code)]
+    Off,
+    Is(Provider),
+}
+
 /// The provider already chosen for a step. A base URL without a provider is a gateway.
 pub(crate) fn current_provider(
     env: &HashMap<String, String>,
     provider_var: &str,
     url_var: &str,
-) -> Option<Provider> {
+) -> Current {
     match current(env, provider_var) {
-        Some(v) => Some(Provider::parse(&v).unwrap_or(Provider::Compatible)),
-        None => current(env, url_var).map(|_| Provider::Compatible),
+        Some(v) => Provider::parse(&v).map_or(Current::Unset, Current::Is),
+        None => current(env, url_var).map_or(Current::Unset, |_| Current::Is(Provider::Compatible)),
     }
+}
+
+/// The provider line holds a value that is not a provider: what was stored for the step (URL,
+/// key, model, routing) belonged to something else and is ignored.
+pub(crate) fn provider_invalid(env: &HashMap<String, String>, provider_var: &str) -> bool {
+    current(env, provider_var).is_some_and(|v| Provider::parse(&v).is_none())
 }
 
 /// Secrets to generate, then the missing provider settings. When everything is already set and
@@ -301,7 +318,10 @@ fn configure(
     for (step, [provider_var, url_var, key_var, model_var], [provider_q, url_q, key_q, model_q]) in
         STEPS
     {
-        let known = current_provider(env, provider_var, url_var);
+        let known = match current_provider(env, provider_var, url_var) {
+            Current::Is(p) => Some(p),
+            Current::Unset | Current::Off => None,
+        };
         let provider = match known.filter(|_| !reconf) {
             Some(known) => known,
             None => {
@@ -314,12 +334,12 @@ fn configure(
             }
         };
         // Another provider: the old URL, key and model do not apply.
-        let changed = reconf && known != Some(provider);
+        let changed = (reconf && known != Some(provider)) || provider_invalid(env, provider_var);
         let (default_url, default_model) = providers::defaults(provider, step);
         let own = |k: &str| current(env, k).filter(|_| !changed);
 
         // The claude CLI has its own login: no URL, no key.
-        let needs_api = provider != Provider::Claude;
+        let needs_api = !provider.is_cli();
         let mut url = own(url_var).unwrap_or_default();
         if needs_api && (reconf || url.is_empty()) {
             let default = Some(url.as_str()).filter(|u| !u.is_empty()).or(default_url);
@@ -327,7 +347,7 @@ fn configure(
             set(&mut updates, env, url_var, url.clone());
         }
 
-        let model_asked = reconf || current(env, model_var).is_none();
+        let model_asked = reconf || changed || current(env, model_var).is_none();
         let mut found = Vec::new();
         let mut key = own(key_var).unwrap_or_default();
         if needs_api {
@@ -364,9 +384,6 @@ fn configure(
                 own(model_var).as_deref().or(default_model),
                 own(model_var).is_some(),
             )?;
-            if let Some(w) = providers::warning(capability(provider, &model), step) {
-                p.info(&t!("init.attention", warning = w));
-            }
             set(&mut updates, env, model_var, model.clone());
             model
         } else {
@@ -376,7 +393,7 @@ fn configure(
         // Asked after the model: the menu lists the providers that serve it. Optional, so an
         // empty answer is written (`KEY=`): its absence means "not asked yet".
         let var = routing_var(step);
-        if provider == Provider::OpenRouter && (reconf || !env.contains_key(var)) {
+        if provider == Provider::OpenRouter && (reconf || changed || !env.contains_key(var)) {
             let mut offered = Ok(Vec::new());
             p.busy(&t!("setup.routing_loading"), &mut || {
                 offered = routes(&url, &key, &model);
@@ -494,17 +511,14 @@ fn ask_provider(
     step: Step,
     known: Option<Provider>,
 ) -> SetupResult<Provider> {
-    // `openai` first and default: it needs no capability warning with the default model.
     let options: Vec<Provider> = [
-        Provider::OpenAi,
         Provider::Compatible,
         Provider::Mistral,
-        Provider::Anthropic,
         Provider::OpenRouter,
         Provider::Claude,
     ]
     .into_iter()
-    .filter(|o| supports(capability(*o, ""), step))
+    .filter(|o| o.can(step))
     .collect();
     let choices: Vec<Choice> = options
         .iter()
@@ -639,7 +653,7 @@ fn ask_model(
     });
     let model = match p.choose(question, &choices, default)? {
         Picked::Option(i) if i < entries.len() => entries.swap_remove(i).0,
-        Picked::Option(_) => p.text(question, None)?,
+        Picked::Option(_) => p.text(question, preferred)?,
         Picked::Text(name) => name,
     };
     // Still accepted: the list can be partial. A wrong name fails the job later.

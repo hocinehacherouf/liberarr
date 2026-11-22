@@ -11,10 +11,10 @@ LIBERARR_TRANSCRIBE_PROVIDER=mistral
 LIBERARR_TRANSCRIBE_BASE_URL=https://api.mistral.ai/v1
 LIBERARR_TRANSCRIBE_API_KEY=stored-transcribe-key
 LIBERARR_TRANSCRIBE_MODEL=voxtral-mini-transcribe-3
-LIBERARR_LLM_PROVIDER=anthropic
-LIBERARR_LLM_BASE_URL=https://api.anthropic.com
+LIBERARR_LLM_PROVIDER=mistral
+LIBERARR_LLM_BASE_URL=https://api.mistral.ai/v1
 LIBERARR_LLM_API_KEY=stored-llm-key
-LIBERARR_LLM_MODEL=claude-sonnet-5-5
+LIBERARR_LLM_MODEL=mistral-small-2603
 LIBERARR_CONTENT_LANGUAGE=fr
 LIBERARR_OBSIDIAN_DIR=/tmp
 ";
@@ -87,7 +87,7 @@ fn written(plan: &Plan) -> HashMap<String, String> {
 #[test]
 fn set_values_are_never_overwritten_or_re_asked() {
     // A .env missing only the LLM model: nothing else may be asked or changed.
-    let partial = ENV.replace("LIBERARR_LLM_MODEL=claude-sonnet-5-5\n", "");
+    let partial = ENV.replace("LIBERARR_LLM_MODEL=mistral-small-2603\n", "");
     let env = parse_env(&partial);
     let mut p = Fake::default();
     p.choices.push_back(Picked::Text("my-model".into()));
@@ -103,11 +103,12 @@ fn set_values_are_never_overwritten_or_re_asked() {
 fn reconfigure_keeps_the_secrets_and_never_shows_a_secret() {
     let env = parse_env(ENV);
     let mut p = Fake::default();
-    // Keep or reconfigure: reconfigure. Transcription: mistral again (index 2 of 4), key kept,
-    // first model. Summary: switch to openai (index 0), which forces a new key; a custom model.
+    // Keep or reconfigure: reconfigure. Transcription: mistral again (index 1 of 3), key kept,
+    // first model. Summary: switch to openai-compatible (index 0), which forces a new key; a
+    // custom model.
     p.choices.extend([
         Picked::Option(1),
-        Picked::Option(2),
+        Picked::Option(1),
         Picked::Option(0),
         Picked::Option(0),
         Picked::Text("gpt-custom".into()),
@@ -123,7 +124,7 @@ fn reconfigure_keeps_the_secrets_and_never_shows_a_secret() {
         assert!(plan.updates.iter().all(|(u, _)| *u != k), "{k} rewritten");
     }
     assert_eq!(out["LIBERARR_TRANSCRIBE_API_KEY"], "stored-transcribe-key");
-    assert_eq!(out["LIBERARR_LLM_PROVIDER"], "openai");
+    assert_eq!(out["LIBERARR_LLM_PROVIDER"], "openai-compatible");
     assert_eq!(out["LIBERARR_LLM_API_KEY"], TYPED_KEY);
     assert_eq!(out["LIBERARR_LLM_MODEL"], "gpt-custom");
     assert_eq!(out["LIBERARR_CONTENT_LANGUAGE"], "en");
@@ -141,6 +142,58 @@ fn reconfigure_keeps_the_secrets_and_never_shows_a_secret() {
     ] {
         assert!(!seen.contains(secret), "{secret} reached the front-end");
     }
+}
+
+/// A provider that no longer exists (`anthropic`) is not read as a gateway: its URL, key and
+/// model are never kept, in either mode.
+#[test]
+fn a_removed_provider_is_asked_again_with_its_settings_dropped() {
+    let stale = ENV
+        .replace(
+            "LIBERARR_LLM_PROVIDER=mistral",
+            "LIBERARR_LLM_PROVIDER=anthropic",
+        )
+        .replace(
+            "https://api.mistral.ai/v1\nLIBERARR_LLM_API_KEY",
+            "https://api.anthropic.com\nLIBERARR_LLM_API_KEY",
+        )
+        .replace(
+            "LIBERARR_LLM_MODEL=mistral-small-2603",
+            "LIBERARR_LLM_MODEL=claude-sonnet-5-5",
+        );
+    let env = parse_env(&stale);
+    assert_eq!(env["LIBERARR_LLM_BASE_URL"], "https://api.anthropic.com");
+
+    // Interactive: the summary provider (mistral, index 1), then its URL, key and model.
+    let mut p = Fake::default();
+    p.choices.extend([Picked::Option(1), Picked::Option(0)]);
+    p.secrets.push_back(TYPED_KEY);
+    let plan = run_setup(&mut p, &env, Language::En, Path::new("/h"), &ok, &no_routes).unwrap();
+    assert!(
+        p.seen
+            .iter()
+            .any(|s| s.contains(&*t!("init.summarize.provider")))
+    );
+    let out = parse_env(&merge(&stale, &plan.updates));
+    assert_eq!(out["LIBERARR_LLM_PROVIDER"], "mistral");
+    assert_eq!(out["LIBERARR_LLM_BASE_URL"], "https://api.mistral.ai/v1");
+    assert_eq!(out["LIBERARR_LLM_API_KEY"], TYPED_KEY);
+    assert_eq!(out["LIBERARR_LLM_MODEL"], "mistral-small-2603");
+    assert!(plan.updates.iter().all(|(_, v)| !v.contains("anthropic")));
+
+    // Non-interactive: read again from the environment, the stored values ignored.
+    let given = |k: &str| match k {
+        "LIBERARR_LLM_PROVIDER" => Some("mistral".to_string()),
+        "LIBERARR_LLM_API_KEY" => Some(TYPED_KEY.to_string()),
+        "LIBERARR_LLM_MODEL" => Some("mistral-small-2603".to_string()),
+        _ => None,
+    };
+    let plan = from_env(&env, Language::En, Path::new("/h"), given).unwrap();
+    let out = parse_env(&merge(&stale, &plan.updates));
+    assert_eq!(out["LIBERARR_LLM_PROVIDER"], "mistral");
+    assert_eq!(out["LIBERARR_LLM_BASE_URL"], "https://api.mistral.ai/v1");
+    assert_eq!(out["LIBERARR_LLM_API_KEY"], TYPED_KEY);
+    assert_eq!(out["LIBERARR_LLM_MODEL"], "mistral-small-2603");
 }
 
 #[test]

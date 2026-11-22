@@ -30,10 +30,10 @@ const fn entry(
     }
 }
 
-use Provider::{Anthropic, Claude, Mistral, OpenAi, OpenRouter};
+use Provider::{Claude, Mistral, OpenRouter};
 use Step::{Summarize, Transcribe};
 
-// No OpenAI chat model: none is named anywhere in the code, and they change too fast to guess.
+// No model for `openai-compatible`: the endpoint behind it is unknown, and models change too fast to guess.
 pub const MODELS: &[Entry] = &[
     entry(
         Mistral,
@@ -51,38 +51,6 @@ pub const MODELS: &[Entry] = &[
         true,
         None,
     ),
-    entry(
-        OpenAi,
-        Transcribe,
-        "whisper-1",
-        "model.whisper_1",
-        true,
-        Some("2027-02-26"),
-    ),
-    entry(
-        OpenAi,
-        Transcribe,
-        "gpt-transcribe",
-        "model.gpt_transcribe",
-        false,
-        None,
-    ),
-    entry(
-        Anthropic,
-        Summarize,
-        "claude-sonnet-5-5",
-        "model.claude_sonnet_5_5",
-        true,
-        None,
-    ),
-    entry(
-        Anthropic,
-        Summarize,
-        "claude-haiku-5-5",
-        "model.claude_haiku_5_5",
-        false,
-        None,
-    ),
     // Through OpenRouter, billed on your own Mistral key when routed to `mistral` (BYOK).
     entry(
         OpenRouter,
@@ -97,13 +65,8 @@ pub const MODELS: &[Entry] = &[
     entry(Claude, Summarize, "haiku", "model.cli_haiku", false, None),
 ];
 
-/// Curated entries for a provider and step. A gateway is proposed the OpenAI models.
+/// Curated entries for a provider and step.
 pub fn curated(provider: Provider, step: Step) -> impl Iterator<Item = &'static Entry> {
-    let provider = if provider == Provider::Compatible {
-        Provider::OpenAi
-    } else {
-        provider
-    };
     MODELS
         .iter()
         .filter(move |e| e.provider == provider && e.step == step)

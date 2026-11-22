@@ -3,28 +3,23 @@
 //! summaries, keys or URLs.
 //!
 //! Variables (all optional, a target with missing ones is skipped): MISTRAL_API_KEY,
-//! OPENAI_API_KEY, OPENAI_CHAT_MODEL (needed for the OpenAI summary case), ANTHROPIC_API_KEY,
-//! ANTHROPIC_MODEL (default claude-sonnet-5-5), PROBE_CLAUDE_CLI (model alias for the local
-//! `claude` CLI, for example `sonnet`), PROBE_AUDIO (audio file, needed for transcription).
+//! PROBE_CLAUDE_CLI (model alias for the local `claude` CLI, for example `sonnet`), PROBE_AUDIO
+//! (audio file, needed for transcription).
 use liberarr_core::Result;
 use liberarr_core::lang::Language;
 use liberarr_core::summaries::{ChatMessage, Llm, Role, parse_summary, summary_messages};
 use liberarr_core::transcription::{ChunkResult, Segment, Transcriber, Transcript};
 use liberarr_infra::ai::OpenAiCompat;
-use liberarr_infra::anthropic::AnthropicLlm;
 use liberarr_infra::claude_cli::ClaudeCli;
 use liberarr_infra::mistral::MistralTranscriber;
 
 const MISTRAL_BASE: &str = "https://api.mistral.ai/v1";
-const OPENAI_BASE: &str = "https://api.openai.com/v1";
-const ANTHROPIC_BASE: &str = "https://api.anthropic.com";
 const MISTRAL_MODELS: [&str; 4] = [
     "voxtral-mini-latest",
     "voxtral-mini-transcribe-3",
     "voxtral-mini-transcribe-3-0",
     "voxtral-mini-2602",
 ];
-const OPENAI_MODELS: [&str; 2] = ["gpt-transcribe", "whisper-1"];
 
 fn var(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.trim().is_empty())
@@ -120,44 +115,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     match var("MISTRAL_API_KEY") {
         Some(key) => {
-            let llm =
-                OpenAiCompat::new(MISTRAL_BASE.into(), key, "mistral-small-2603".into(), true);
+            let llm = OpenAiCompat::new(MISTRAL_BASE.into(), key, "mistral-small-2603".into());
             show_chat("mistral/chat", &llm).await;
         }
         None => println!("mistral chat: skipped"),
-    }
-
-    match (var("OPENAI_API_KEY"), &audio) {
-        (Some(key), Some(audio)) => {
-            for m in OPENAI_MODELS {
-                for (format, segments) in [("verbose_json", true), ("json", false)] {
-                    let t = OpenAiCompat::new(OPENAI_BASE.into(), key.clone(), m.into(), segments);
-                    show_transcript(
-                        &format!("openai/{m}/{format}"),
-                        t.transcribe(audio, filename).await,
-                    );
-                }
-            }
-        }
-        _ => println!("openai transcription: skipped"),
-    }
-    match (var("OPENAI_API_KEY"), var("OPENAI_CHAT_MODEL")) {
-        (Some(key), Some(model)) => {
-            let llm = OpenAiCompat::new(OPENAI_BASE.into(), key, model, true);
-            show_chat("openai/chat", &llm).await;
-            show_summary("openai/summary", &llm).await;
-        }
-        _ => println!("openai chat: skipped"),
-    }
-
-    match var("ANTHROPIC_API_KEY") {
-        Some(key) => {
-            let model = var("ANTHROPIC_MODEL").unwrap_or_else(|| "claude-sonnet-5-5".into());
-            let llm = AnthropicLlm::new(ANTHROPIC_BASE.into(), key, model);
-            show_chat("anthropic/chat", &llm).await;
-            show_summary("anthropic/summary", &llm).await;
-        }
-        None => println!("anthropic: skipped"),
     }
 
     match var("PROBE_CLAUDE_CLI") {
