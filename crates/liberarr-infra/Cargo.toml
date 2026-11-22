@@ -26,6 +26,8 @@ futures = { workspace = true }
 opus = { workspace = true }
 # whisper.cpp for local transcription; Metal on Apple silicon only.
 whisper-rs = { workspace = true }
+# Local speaker diarization (sherpa-onnx with a statically linked onnxruntime).
+sherpa-onnx = { workspace = true }
 # Unlock secret: parses the user's private key.
 rsa = { workspace = true }
 

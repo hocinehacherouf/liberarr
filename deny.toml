@@ -13,4 +13,6 @@ allow = [
     "CDLA-Permissive-2.0",
     # whisper-rs (Unlicense).
     "Unlicense",
+    # libbz2-rs-sys (bzip2 of the sherpa-onnx-sys build script, which unpacks the prebuilt archive).
+    "bzip2-1.0.6",
 ]

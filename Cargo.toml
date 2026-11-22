@@ -37,6 +37,10 @@ opus = "=0.4.0"
 # feature is added for Apple silicon in liberarr-infra. whisper-rs-sys forwards GGML_*, WHISPER_* and CMAKE_*
 # environment variables to cmake, so CI sets GGML_NATIVE=OFF.
 whisper-rs = { version = "=0.16.0", default-features = false }
+# Local speaker diarization: the -sys build script downloads a prebuilt static onnxruntime archive without any
+# checksum. CI and release builds fetch and verify it first (packaging/fetch-sherpa-onnx.sh) and set
+# SHERPA_ONNX_ARCHIVE_DIR. A bump needs the hashes in packaging/sherpa-onnx.sha256 updated.
+sherpa-onnx = "=2.0.1"
 futures = "=0.3.34"
 base64 = "=0.23.1"
 hkdf = "=0.13.0"

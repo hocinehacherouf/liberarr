@@ -1,4 +1,4 @@
-//! Model files for local transcription: downloaded once into `<home>/models`, verified, then reused.
+//! Model files for local transcription and diarization: downloaded once into `<home>/models`, verified, then reused.
 use crate::files::sha256_file;
 use liberarr_core::{Error, Result};
 use std::fs;
@@ -26,6 +26,22 @@ pub const SILERO_VAD: ModelSpec = ModelSpec {
     url: "https://huggingface.co/ggml-org/whisper-vad/resolve/9ffd54a1e1ee413ddf265af9913beaf518d1639b/ggml-silero-v6.2.0.bin",
     size: 885_098,
     sha256: "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987",
+};
+
+/// Speaker segmentation for diarization (pyannote segmentation-3.0, sherpa-onnx export; MIT, Copyright (c) 2022 CNRS).
+pub const PYANNOTE_SEGMENTATION: ModelSpec = ModelSpec {
+    name: "pyannote-segmentation-3.0.onnx",
+    url: "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/9403a6902bb58e3d5ae8c7e77c3422de279db2e0/model.onnx",
+    size: 5_992_913,
+    sha256: "220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079",
+};
+
+/// Speaker embedding for diarization (NVIDIA NeMo TitaNet-S; Apache-2.0).
+pub const TITANET_SMALL: ModelSpec = ModelSpec {
+    name: "nemo_en_titanet_small.onnx",
+    url: "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/a8055d6daef723a6a4ecf4de233708575bf4994f/nemo_en_titanet_small.onnx",
+    size: 40_257_283,
+    sha256: "ad4a1802485d8b34c722d2a9d04249662f2ece5d28a7a039063ca22f515a789e",
 };
 
 const STALE_TMP: Duration = Duration::from_secs(15 * 60);
