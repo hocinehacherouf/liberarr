@@ -5,7 +5,8 @@ Liberarr keeps everything in `LIBERARR_HOME` on your machine. Its database and w
 | What | Where to | When |
 |---|---|---|
 | Your Plaud token, and your devices' serial numbers (already known to Plaud) to get their signatures; the device keys come back | Plaud's API (`api.plaud.ai` or your region's Plaud API host) | `link` only. |
-| The audio of each recording, and your `LIBERARR_TRANSCRIBE_VOCABULARY` list when set | Your transcription provider | Transcription step. |
+| The audio of each recording, and your `LIBERARR_TRANSCRIBE_VOCABULARY` list when set | Your transcription provider | Transcription step, only with a cloud provider. Never with `local`. |
+| Nothing about your recordings: a plain download of the two model files (Whisper, 575 MB, and the voice-activity model, 0.9 MB) | Hugging Face (`huggingface.co`) | Once, at the first local transcription, and again if `<LIBERARR_HOME>/models` is deleted. |
 | The transcript of each recording | Your summary provider, or the vendor of the subscription CLI you chose | Summary step, only when a summary provider other than `none` is set. |
 | Your API keys | The provider each key belongs to | Each request, and the key test in `init`. |
 | The summaries, actions and transcripts your AI agent reads | The AI provider of that agent | Only if you connect an agent to `liberarr mcp` ([AI agents](agents.md)). |
@@ -14,9 +15,9 @@ Nothing else is sent: no telemetry, no analytics. `pull` talks to the device ove
 
 ## AI providers
 
-**Every recording is sent to the providers you configure.** There is no per-recording choice yet. Do not use a provider you would not trust with a work meeting, and check its data-retention and training settings for your account.
+**Every recording is sent to the cloud providers you configure.** There is no per-recording choice yet. With the default `local` transcription, the audio never leaves your machine. Do not use a provider you would not trust with a work meeting, and check its data-retention and training settings for your account.
 
-The default summary provider is `none`: no transcript leaves your machine at that step.
+The default summary provider is `none`: no transcript leaves your machine at that step. With `local` transcription and a `none` summary, nothing about your recordings leaves the machine at all, after the one-time model download.
 
 With `claude`, `codex` or `copilot`, the transcript text is sent by that tool to its vendor (Anthropic, OpenAI or GitHub), under your account's privacy settings there. `init` never selects one by itself. Liberarr runs these tools with their tools and file access turned off, and re-tests that lockdown with a canary probe on new versions of each CLI (see [AI providers](ai-providers.md#subscription-clis)). Local copies: `codex` keeps none (`--ephemeral`); `claude` keeps none (`--no-session-persistence`); `copilot` keeps a session copy of the run, transcript included, under `~/.copilot/session-state`, because no flag turns that off. Delete it yourself if that matters to you. With OpenRouter and no `ROUTING_ONLY` list, any provider OpenRouter picks may receive them.
 

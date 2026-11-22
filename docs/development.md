@@ -2,7 +2,7 @@
 
 For contributors building Liberarr from source. Users only need the binary (see [Install](install.md)).
 
-You need Rust (version pinned in `rust-toolchain.toml`) and Node (build-time only, for the web UI). On Linux also `libdbus-1-dev` and `pkg-config`.
+You need Rust (version pinned in `rust-toolchain.toml`) and Node (build-time only, for the web UI). Local transcription builds whisper.cpp from source: you also need `cmake`, a C++ compiler and libclang (Linux: `cmake`, `g++`, `libclang-dev`; macOS: Xcode command line tools and `brew install cmake`). On Linux also `libdbus-1-dev` and `pkg-config`. Nothing is downloaded at build time; the models are downloaded at run time.
 
 ## With mise (optional)
 

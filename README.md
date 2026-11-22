@@ -31,15 +31,15 @@ Liberarr is an independent project, **not affiliated with, endorsed by or sponso
 
 ## Why Liberarr
 
-- **Your recordings stay yours.** Audio, transcripts and summaries live in one folder on your machine. No Liberarr server, no telemetry. Only the AI providers you configure receive audio and transcripts ([privacy](docs/privacy.md)).
-- **Any AI provider, or none for summaries.** Mistral, OpenRouter, or any OpenAI-compatible endpoint (OpenAI, a LiteLLM gateway…) for transcription; for summaries also your own `claude`, `codex` or `copilot` subscription, or nothing at all: transcript only, no text leaves your machine at that step.
+- **Your recordings stay yours.** Audio, transcripts and summaries live in one folder on your machine. No Liberarr server, no telemetry. Transcription runs on your machine by default, so nothing leaves it unless you choose a cloud provider ([privacy](docs/privacy.md)).
+- **Local by default, any AI provider if you want one.** Transcription runs on your machine with Whisper (a one-time 575 MB model download, then fully offline); Mistral, OpenRouter or any OpenAI-compatible endpoint (OpenAI, a LiteLLM gateway…) are optional. Summaries are optional too: your own `claude`, `codex` or `copilot` subscription, an API provider, or nothing at all. With the defaults, nothing leaves your machine.
 - **One binary.** Nothing else to install. macOS and Linux.
 - **Two ways to read your results:** a full-screen terminal app and a local web UI.
 
 ## What you get
 
 - **Device pull over Bluetooth:** `liberarr pull` copies new recordings straight off the device. Local audio files work too (`liberarr process`).
-- **Transcript**, timestamped with most models, French and English mixed in the same recording.
+- **Transcript**, timestamped, French and English mixed in the same recording. Local Whisper by default, no account and no key.
 - **Summary**, **mind map** and **action table** for each recording.
 - **Obsidian export:** each recording becomes a Markdown note in the folder of your choice.
 - **Terminal app** (`liberarr tui`): one dashboard with the recordings, the selected one's summary, transcript, mind map and actions to tick, the pipeline and the device pull.
@@ -67,7 +67,7 @@ Or with Homebrew (from the first release): `brew install hocinehacherouf/tap/lib
 ## Quick start
 
 ```sh
-liberarr init    # creates ~/.liberarr/.env: generated secrets, asks for your AI provider keys (or CLIs)
+liberarr init    # creates ~/.liberarr/.env: generated secrets; transcription is local, asks for a summary provider only if you want one
 liberarr link    # one-time: fetches the device keys from your Plaud account, then tests an unlock
 liberarr pull    # pulls new recordings off the device, then processes them
 liberarr tui     # full-screen terminal app

@@ -13,7 +13,7 @@ Error messages name the setting or the command to run; they never show a secret.
 | `The claude CLI did not answer (missing or not signed in)` (or `codex`, `copilot`) | Install the CLI and sign in by running it once, then run `liberarr init` again. Under `serve` on a server, add `CLAUDE_CODE_OAUTH_TOKEN` to the `.env`, see [AI providers](ai-providers.md#subscription-clis). In Docker no host CLI is visible: use an API provider. |
 | `Notes are written in …, the interface language` | Add `LIBERARR_CONTENT_LANGUAGE=en` (or `fr`) to `.env` so notes keep one language. |
 | `Warning: …_ROUTING_ONLY is empty` | OpenRouter may use its own shared models. Set the list, see [OpenRouter](ai-providers.md#openrouter). |
-| `Warning: LIBERARR_TRANSCRIBE_VOCABULARY is ignored` | Your transcription provider or model takes no vocabulary. Use `mistral`, or remove the line. |
+| `Warning: LIBERARR_TRANSCRIBE_VOCABULARY is ignored` | Your transcription provider or model takes no vocabulary. Use `local` or `mistral`, or remove the line. |
 | `No answer available (input closed)` | `init` has no terminal to ask in. Use `liberarr init --non-interactive` with the variables exported. |
 
 ## Device (`link`, `pull`)
@@ -39,7 +39,11 @@ The device talks to one Bluetooth client at a time, and sleeps when idle.
 - **HTTP 429 or overloaded**: already retried 3 times. Wait, then `rerun`. Check your provider's quota or credits.
 - **Model not found**: the model name is wrong or retired. Run `liberarr init` and pick one from the list.
 - **File too large**: only Ogg files (the device format) are split for upload. Convert another format to Ogg, or keep it under about 24 MB.
-- **No timestamps / playback not synchronized**: the transcription model returns text only. Use `whisper-1` or a `voxtral` model.
+- **`local transcription reads Ogg Opus only`**: the file is not Ogg Opus. Convert it to Ogg Opus, or use a cloud transcriber ([AI providers](ai-providers.md#local-transcription)).
+- **Model download fails or is slow**: the first local transcription downloads 575 MB from `huggingface.co`. Check the connection and run `rerun` again; a download that fails its size or checksum check is discarded, never kept. For an offline machine, use a cloud transcriber or copy `<LIBERARR_HOME>/models` from another machine.
+- **Local transcription is very slow**: expected on a CPU-only machine or a NAS, see [speed](ai-providers.md#local-transcription). Use a cloud transcriber for those recordings.
+- **Crash at start on `local` (illegal instruction)**: the CPU lacks AVX2 (x86-64) or Armv8.2-A (ARM). Use a cloud transcriber.
+- **No timestamps / playback not synchronized**: the transcription model returns text only. Use `local`, `whisper-1` or a `voxtral` model.
 - **`done, no speech detected`**: the recording has no speech; no summary or note is made, on purpose.
 - **Work stuck after a crash**: the next `serve`, `tui`, `pull` or `process` puts interrupted tasks back in the queue.
 

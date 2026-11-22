@@ -1,6 +1,6 @@
 # Install
 
-Liberarr is one binary. Nothing else is needed to run it.
+Liberarr is one binary. Nothing else is needed to run it. Local transcription downloads its Whisper model (575 MB) into `~/.liberarr/models` the first time it runs; see [AI providers](ai-providers.md#local-transcription). It needs a CPU with AVX2 (x86-64) or Armv8.2-A (ARM Linux).
 
 ## Supported platforms
 
@@ -61,7 +61,7 @@ On macOS, the first `link` or `pull` asks for Bluetooth access for your terminal
 
 From the first release, the image `ghcr.io/hocinehacherouf/liberarr` (Linux, x86-64 and ARM64) runs `liberarr serve`. It runs as a non-root user (`nonroot`, uid 65532) and keeps everything in the `/data` volume (`LIBERARR_HOME`). It is based on the minimal [Wolfi](https://wolfi.dev) image `wolfi-base`. The image is attested: `gh attestation verify oci://ghcr.io/hocinehacherouf/liberarr:<version> --repo hocinehacherouf/liberarr`.
 
-First start: write your AI provider settings in a file, for example `providers.env` (see [Configuration](configuration.md) for the variables):
+First start: write your AI provider settings in a file, for example `providers.env` (see [Configuration](configuration.md) for the variables). Transcription runs inside the container by default (the model is downloaded into the `/data` volume on first use); the example below uses a cloud provider instead:
 
 ```sh
 LIBERARR_TRANSCRIBE_PROVIDER=mistral
@@ -72,7 +72,7 @@ LIBERARR_LLM_MODEL=mistral-small-2603
 LIBERARR_CONTENT_LANGUAGE=en
 ```
 
-The summary lines are optional: leave them out for transcripts only (`none`). The container does not see the `claude`, `codex` and `copilot` CLIs of your host, so they cannot be used inside it; see [AI providers](ai-providers.md#subscription-clis).
+The transcription lines are optional too: leave them out for local Whisper. The summary lines are optional: leave them out for transcripts only (`none`). The container does not see the `claude`, `codex` and `copilot` CLIs of your host, so they cannot be used inside it; see [AI providers](ai-providers.md#subscription-clis).
 
 Then create the `.env` in the volume, and start the web UI:
 
