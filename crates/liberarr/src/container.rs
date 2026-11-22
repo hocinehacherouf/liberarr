@@ -6,10 +6,12 @@ use liberarr_core::exports::ExportToObsidian;
 use liberarr_core::jobs::{Job, JobInfo, JobQueue, StepHandler, run_job_once};
 use liberarr_core::recordings::{Ingest, Recording, RecordingItem, RecordingRepo};
 use liberarr_core::summaries::{
-    ChatMessage, Llm, MeetingSummary, Summarize, SummaryRepo, ToggleAction,
+    ChatMessage, Llm, MeetingSummary, Summarize, SummaryEditRepo, SummaryRepo, SummaryText,
+    ToggleAction,
 };
 use liberarr_core::transcription::{
-    ChunkResult, Transcribe, Transcriber, Transcript, TranscriptRepo,
+    ChunkResult, SegmentChange, SegmentEdit, Transcribe, Transcriber, Transcript,
+    TranscriptEditRepo, TranscriptRepo,
 };
 use liberarr_core::{Error, Result};
 use liberarr_infra::agent_cli::{AgentCli, Preset};
@@ -282,6 +284,29 @@ impl Backend for App {
     }
     async fn summary(&self, id: i64) -> Result<Option<MeetingSummary>> {
         SummaryRepo::get(&self.db, id).await
+    }
+    async fn transcript_with_edits(
+        &self,
+        id: i64,
+    ) -> Result<Option<(Transcript, Vec<SegmentEdit>)>> {
+        self.db.get_with_edits(id).await
+    }
+    async fn summary_with_edit(
+        &self,
+        id: i64,
+    ) -> Result<Option<(MeetingSummary, Option<SummaryText>)>> {
+        self.db.get_with_edit(id).await
+    }
+    async fn set_transcript_edits(&self, id: i64, changes: &[SegmentChange]) -> Result<()> {
+        self.db.set_edits(id, changes).await
+    }
+    async fn set_summary_edit(
+        &self,
+        id: i64,
+        generated: &SummaryText,
+        edit: &SummaryText,
+    ) -> Result<()> {
+        self.db.set_edit(id, generated, edit).await
     }
     async fn jobs(&self, id: i64) -> Result<Vec<JobInfo>> {
         self.db.list_for(id).await

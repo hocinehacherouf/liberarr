@@ -14,8 +14,8 @@ use liberarr_core::Result;
 use liberarr_core::diarization::Diarization;
 use liberarr_core::jobs::JobInfo;
 use liberarr_core::recordings::{Recording, RecordingItem};
-use liberarr_core::summaries::MeetingSummary;
-use liberarr_core::transcription::Transcript;
+use liberarr_core::summaries::{MeetingSummary, SummaryText};
+use liberarr_core::transcription::{SegmentChange, SegmentEdit, Transcript};
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::net::SocketAddr;
@@ -28,6 +28,29 @@ pub trait Backend: Send + Sync + 'static {
     fn recording(&self, id: i64) -> impl Future<Output = Result<Option<Recording>>> + Send;
     fn transcript(&self, id: i64) -> impl Future<Output = Result<Option<Transcript>>> + Send;
     fn summary(&self, id: i64) -> impl Future<Output = Result<Option<MeetingSummary>>> + Send;
+    /// The engine's transcript, untouched, with the owner's edits.
+    fn transcript_with_edits(
+        &self,
+        id: i64,
+    ) -> impl Future<Output = Result<Option<(Transcript, Vec<SegmentEdit>)>>> + Send;
+    /// The generated summary, untouched, and the owner's title and summary when edited.
+    fn summary_with_edit(
+        &self,
+        id: i64,
+    ) -> impl Future<Output = Result<Option<(MeetingSummary, Option<SummaryText>)>>> + Send;
+    /// `Error::NotFound` / `Error::Conflict` as `TranscriptEditRepo::set_edits`.
+    fn set_transcript_edits(
+        &self,
+        id: i64,
+        changes: &[SegmentChange],
+    ) -> impl Future<Output = Result<()>> + Send;
+    /// `Error::NotFound` / `Error::Conflict` as `SummaryEditRepo::set_edit`.
+    fn set_summary_edit(
+        &self,
+        id: i64,
+        generated: &SummaryText,
+        edit: &SummaryText,
+    ) -> impl Future<Output = Result<()>> + Send;
     fn jobs(&self, id: i64) -> impl Future<Output = Result<Vec<JobInfo>>> + Send;
     /// Queues `step` (already validated against `STEPS`); the worker picks it up.
     fn enqueue(&self, id: i64, step: &str) -> impl Future<Output = Result<i64>> + Send;
@@ -109,6 +132,11 @@ pub fn router<B: Backend>(state: AppState<B>, bind: SocketAddr) -> Router {
             "/recordings/{id}/actions/{index}",
             patch(api::toggle_action::<B>),
         )
+        .route(
+            "/recordings/{id}/transcript",
+            patch(api::edit_transcript::<B>),
+        )
+        .route("/recordings/{id}/summary", put(api::edit_summary::<B>))
         .layer(from_fn_with_state(state.clone(), api::require_auth::<B>));
     let app = Router::new()
         .nest(
@@ -147,6 +175,7 @@ mod tests {
         jobs: Arc<Mutex<Vec<JobInfo>>>,
         names: Arc<Mutex<BTreeMap<u32, String>>>,
         count: Arc<Mutex<Option<u32>>>,
+        edits: Arc<Mutex<Vec<SegmentEdit>>>,
         /// `LIBERARR_DIARIZE=off`.
         diarize_off: bool,
     }
@@ -189,6 +218,50 @@ mod tests {
                 segments: vec![seg(0.0, 5.0), seg(20.0, 25.0)],
                 has_timestamps: true,
             }))
+        }
+        async fn transcript_with_edits(
+            &self,
+            id: i64,
+        ) -> Result<Option<(Transcript, Vec<SegmentEdit>)>> {
+            let t = self.transcript(id).await?;
+            Ok(t.map(|t| (t, self.edits.lock().expect("lock").clone())))
+        }
+        async fn set_transcript_edits(&self, id: i64, changes: &[SegmentChange]) -> Result<()> {
+            if id != 1 || changes.iter().any(|c| c.index > 1) {
+                return Err(liberarr_core::Error::NotFound("segment".into()));
+            }
+            if changes.iter().any(|c| c.current != "x") {
+                return Err(liberarr_core::Error::Conflict("segment".into()));
+            }
+            let mut edits = self.edits.lock().expect("lock");
+            for c in changes {
+                edits.push(SegmentEdit {
+                    index: c.index,
+                    original: "x".into(),
+                    text: c.text.clone(),
+                });
+            }
+            Ok(())
+        }
+        async fn summary_with_edit(
+            &self,
+            _: i64,
+        ) -> Result<Option<(MeetingSummary, Option<SummaryText>)>> {
+            Ok(None)
+        }
+        async fn set_summary_edit(
+            &self,
+            id: i64,
+            generated: &SummaryText,
+            _: &SummaryText,
+        ) -> Result<()> {
+            if id != 1 {
+                return Err(liberarr_core::Error::NotFound("summary".into()));
+            }
+            if generated.title != "t" || generated.summary_md != "s" {
+                return Err(liberarr_core::Error::Conflict("summary".into()));
+            }
+            Ok(())
         }
         /// Speakers 0 and 1 over the first ten seconds.
         async fn diarization(&self, id: i64) -> Result<Option<Diarization>> {
@@ -726,6 +799,166 @@ mod tests {
             .await
             .expect("body");
         assert!(String::from_utf8_lossy(&body).contains("<html"));
+    }
+
+    fn edits_body(edits: serde_json::Value) -> String {
+        serde_json::json!({ "edits": edits }).to_string()
+    }
+
+    fn one_edit(index: usize, current: &str, text: &str) -> String {
+        edits_body(serde_json::json!([{ "index": index, "current": current, "text": text }]))
+    }
+
+    #[tokio::test]
+    async fn transcript_edits_are_validated_and_guarded() {
+        let app = app();
+        let patch = |id: u32, body: String| {
+            req(
+                "PATCH",
+                &format!("/api/recordings/{id}/transcript"),
+                Some("key"),
+                &body,
+            )
+        };
+        let many: Vec<_> = (0..5001)
+            .map(|i| serde_json::json!({"index": i, "current": "x", "text": "y"}))
+            .collect();
+        for bad in [
+            edits_body(serde_json::json!([])),
+            edits_body(serde_json::json!(many)),
+            edits_body(serde_json::json!([
+                {"index": 0, "current": "x", "text": "a"},
+                {"index": 0, "current": "x", "text": "b"}
+            ])),
+            one_edit(0, "x", "a\u{7}b"),
+            one_edit(0, "x", &"a".repeat(500_001)),
+        ] {
+            assert_eq!(status(&app, patch(1, bad)).await, StatusCode::BAD_REQUEST);
+        }
+        // A wrong shape never reaches our code: axum's extractor answers 422.
+        let shape = r#"{"edits": [{"index": -1, "current": "x", "text": "y"}]}"#.to_string();
+        assert_eq!(
+            status(&app, patch(1, shape)).await,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert_eq!(
+            status(&app, patch(1, one_edit(0, "stale", "y"))).await,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            status(&app, patch(1, one_edit(9, "x", "y"))).await,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            status(&app, patch(2, one_edit(0, "x", "y"))).await,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            status(&app, patch(1, one_edit(0, "x", "line\nbreak"))).await,
+            StatusCode::NO_CONTENT
+        );
+    }
+
+    #[tokio::test]
+    async fn an_edit_queues_one_export_and_waits_for_a_transcription() {
+        let fake = Fake::default();
+        let jobs = Arc::clone(&fake.jobs);
+        let app = app_with(fake);
+        let patch = || {
+            req(
+                "PATCH",
+                "/api/recordings/1/transcript",
+                Some("key"),
+                &one_edit(0, "x", "y"),
+            )
+        };
+        assert_eq!(status(&app, patch()).await, StatusCode::NO_CONTENT);
+        assert_eq!(status(&app, patch()).await, StatusCode::NO_CONTENT);
+        let steps: Vec<_> = jobs
+            .lock()
+            .expect("lock")
+            .iter()
+            .map(|j| j.step.clone())
+            .collect();
+        assert_eq!(steps, ["export"], "the queued export reads both edits");
+        // A queued transcription will replace the transcript: refused.
+        jobs.lock().expect("lock")[0].step = "transcribe".into();
+        assert_eq!(status(&app, patch()).await, StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn detail_shows_the_corrected_text_and_the_original() {
+        let fake = Fake::default();
+        *fake.edits.lock().expect("lock") = vec![
+            SegmentEdit {
+                index: 0,
+                original: "x".into(),
+                text: "y".into(),
+            },
+            SegmentEdit {
+                index: 1,
+                original: "x".into(),
+                text: "".into(),
+            },
+        ];
+        let d = json(
+            &app_with(fake),
+            req("GET", "/api/recordings/1", Some("key"), ""),
+        )
+        .await;
+        let t = &d["transcript"];
+        assert_eq!(t["text"], "y");
+        assert_eq!(t["text_original"], serde_json::Value::Null);
+        assert_eq!(t["segments"][0]["text"], "y");
+        assert_eq!(t["segments"][0]["original"], "x");
+        assert_eq!(t["segments"][0]["removed"], false);
+        assert_eq!(t["segments"][1]["text"], "");
+        assert_eq!(t["segments"][1]["removed"], true);
+    }
+
+    #[tokio::test]
+    async fn summary_edit_is_validated_and_guarded() {
+        let fake = Fake::default();
+        let jobs = Arc::clone(&fake.jobs);
+        let app = app_with(fake);
+        let put = |title: &str, md: &str, generated_title: &str| {
+            let body = serde_json::json!({"title": title, "summary_md": md,
+                "generated_title": generated_title, "generated_summary_md": "s"});
+            req(
+                "PUT",
+                "/api/recordings/1/summary",
+                Some("key"),
+                &body.to_string(),
+            )
+        };
+        let (long_title, long_md) = ("t".repeat(201), "s".repeat(100_001));
+        for (title, md) in [
+            ("  ", "x"),
+            (long_title.as_str(), "x"),
+            ("a\nb", "x"),
+            ("t2", long_md.as_str()),
+            ("t2", "a\u{0}b"),
+        ] {
+            assert_eq!(
+                status(&app, put(title, md, "t")).await,
+                StatusCode::BAD_REQUEST
+            );
+        }
+        assert_eq!(
+            status(&app, put("New", "s\n| a\t|", "stale")).await,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            status(&app, put("New", "s\n| a\t|", "t")).await,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(jobs.lock().expect("lock")[0].step, "export");
+        // A queued summary will replace it: refused.
+        jobs.lock().expect("lock")[0].step = "summarize".into();
+        assert_eq!(
+            status(&app, put("New", "s", "t")).await,
+            StatusCode::CONFLICT
+        );
     }
 
     #[tokio::test]

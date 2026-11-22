@@ -8,13 +8,15 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use liberarr_core::Error;
 use liberarr_core::diarization::{SpeakerTurn, speaker_for};
-use liberarr_core::jobs::{JobInfo, JobStatus, STEPS, busy};
+use liberarr_core::jobs::{JobInfo, JobStatus, STEPS, busy, export_needed};
 use liberarr_core::recordings::{RecordingItem, RecordingStatus};
-use liberarr_core::summaries::{Action, MeetingSummary};
-use liberarr_core::transcription::Transcript;
+use liberarr_core::summaries::{Action, MeetingSummary, SummaryText};
+use liberarr_core::transcription::{
+    SegmentChange, SegmentEdit, Transcript, apply_edits, unit_texts,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::net::SocketAddr;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
@@ -39,6 +41,7 @@ impl From<Error> for ApiError {
 }
 
 const NOT_FOUND: ApiError = ApiError(StatusCode::NOT_FOUND, "not found");
+const INVALID_EDIT: ApiError = ApiError(StatusCode::BAD_REQUEST, "invalid edit");
 const UNAUTHORIZED: ApiError = ApiError(StatusCode::UNAUTHORIZED, "unauthorized");
 
 pub async fn not_found() -> ApiError {
@@ -144,7 +147,11 @@ impl From<RecordingItem> for ItemView {
 pub struct SegmentView {
     start: f64,
     end: f64,
+    /// The corrected text, `""` when removed: what a client sends back as `current`.
     text: String,
+    /// The engine's text, when an edit applies to this segment.
+    original: Option<String>,
+    removed: bool,
     /// 0-based; `None` without a diarization or where no speaker covers the segment.
     speaker: Option<u32>,
 }
@@ -154,27 +161,46 @@ pub struct TranscriptView {
     engine: String,
     language: Option<String>,
     text: String,
+    /// The engine's text, for a transcript without timestamps whose one unit is edited.
+    text_original: Option<String>,
     has_timestamps: bool,
+    /// Empty without timestamps: the whole text is the one editable unit.
     segments: Vec<SegmentView>,
 }
 
 impl TranscriptView {
-    fn new(t: Transcript, turns: &[SpeakerTurn]) -> Self {
+    fn new(raw: Transcript, edits: &[SegmentEdit], turns: &[SpeakerTurn]) -> Self {
+        let shown = unit_texts(&raw, edits);
+        // A stored edit never equals its raw unit (a revert deletes it), so a differing text is an edit.
+        let (segments, text_original) = if raw.has_timestamps {
+            let segments = raw
+                .segments
+                .iter()
+                .zip(&shown)
+                .map(|(s, &text)| {
+                    let edited = text != s.text;
+                    SegmentView {
+                        speaker: speaker_for(s.start, s.end, turns),
+                        start: s.start,
+                        end: s.end,
+                        text: text.into(),
+                        original: edited.then(|| s.text.clone()),
+                        removed: edited && text.is_empty(),
+                    }
+                })
+                .collect();
+            (segments, None)
+        } else {
+            (Vec::new(), (shown[0] != raw.text).then(|| raw.text.clone()))
+        };
+        let t = apply_edits(raw, edits);
         Self {
             engine: t.engine,
             language: t.language,
             text: t.text,
+            text_original,
             has_timestamps: t.has_timestamps,
-            segments: t
-                .segments
-                .into_iter()
-                .map(|s| SegmentView {
-                    speaker: speaker_for(s.start, s.end, turns),
-                    start: s.start,
-                    end: s.end,
-                    text: s.text,
-                })
-                .collect(),
+            segments,
         }
     }
 }
@@ -215,12 +241,48 @@ pub struct SpeakersView {
 }
 
 #[derive(Serialize)]
+pub struct GeneratedView {
+    title: String,
+    summary_md: String,
+}
+
+/// The summary as every reader sees it (the owner's title and Markdown when edited), plus what was generated.
+#[derive(Serialize)]
+pub struct SummaryView {
+    #[serde(flatten)]
+    summary: MeetingSummary,
+    generated: Option<GeneratedView>,
+}
+
+impl SummaryView {
+    fn new(generated: MeetingSummary, edit: Option<SummaryText>) -> Self {
+        let Some(edit) = edit else {
+            return Self {
+                summary: generated,
+                generated: None,
+            };
+        };
+        Self {
+            generated: Some(GeneratedView {
+                title: generated.title.clone(),
+                summary_md: generated.summary_md.clone(),
+            }),
+            summary: MeetingSummary {
+                title: edit.title,
+                summary_md: edit.summary_md,
+                ..generated
+            },
+        }
+    }
+}
+
+#[derive(Serialize)]
 pub struct Detail {
     #[serde(flatten)]
     item: ItemView,
     transcript: Option<TranscriptView>,
     speakers: SpeakersView,
-    summary: Option<MeetingSummary>,
+    summary: Option<SummaryView>,
     jobs: Vec<JobView>,
 }
 
@@ -249,14 +311,18 @@ pub async fn detail<B: Backend>(
         item: item.into(),
         transcript: s
             .backend
-            .transcript(id)
+            .transcript_with_edits(id)
             .await?
-            .map(|t| TranscriptView::new(t, turns)),
+            .map(|(t, edits)| TranscriptView::new(t, &edits, turns)),
         speakers: SpeakersView {
             requested: s.backend.requested_speakers(id).await?,
             names: s.backend.speaker_names(id).await?,
         },
-        summary: s.backend.summary(id).await?,
+        summary: s
+            .backend
+            .summary_with_edit(id)
+            .await?
+            .map(|(g, edit)| SummaryView::new(g, edit)),
         jobs: s
             .backend
             .jobs(id)
@@ -332,11 +398,7 @@ pub async fn rename_speaker<B: Backend>(
     s.backend
         .set_speaker_name(id, n, Some(name).filter(|n| !n.is_empty()))
         .await?;
-    // shortcut: check-then-enqueue is not atomic (same as `rerun`).
-    if !busy(&s.backend.jobs(id).await?) {
-        s.backend.enqueue(id, "export").await?;
-    }
-    Ok(StatusCode::NO_CONTENT)
+    export_after_edit(&s, id).await
 }
 
 #[derive(Deserialize)]
@@ -381,6 +443,135 @@ pub async fn toggle_action<B: Backend>(
             .await?
             .actions,
     ))
+}
+
+const MAX_EDITS: usize = 5000;
+const MAX_EDIT_CHARS: usize = 500_000;
+const MAX_TITLE: usize = 200;
+const MAX_SUMMARY_CHARS: usize = 100_000;
+
+/// A transcription (or summary) queued or running will replace what is being edited.
+fn replacing(jobs: &[JobInfo], steps: &[&str]) -> bool {
+    jobs.iter().any(|j| {
+        matches!(j.status, JobStatus::Queued | JobStatus::Running)
+            && steps.contains(&j.step.as_str())
+    })
+}
+
+/// The edit is saved: the note follows unless a queued or running chain will export it.
+async fn export_after_edit<B: Backend>(s: &AppState<B>, id: i64) -> Result<StatusCode, ApiError> {
+    // shortcut: check-then-enqueue is not atomic (same as `rerun`).
+    if export_needed(&s.backend.jobs(id).await?) {
+        s.backend.enqueue(id, "export").await?;
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct TranscriptEdits {
+    edits: Vec<EditIn>,
+}
+
+#[derive(Deserialize)]
+struct EditIn {
+    index: usize,
+    /// The text the client displayed for that unit: the server refuses with 409 when it has changed.
+    current: String,
+    text: String,
+}
+
+pub async fn edit_transcript<B: Backend>(
+    State(s): State<AppState<B>>,
+    Path(id): Path<i64>,
+    Json(body): Json<TranscriptEdits>,
+) -> Result<StatusCode, ApiError> {
+    let edits = body.edits;
+    let mut seen = HashSet::new();
+    // shortcut: reverting a raw text that holds another control character is refused; Whisper output has none
+    let valid = (1..=MAX_EDITS).contains(&edits.len())
+        && edits.iter().all(|e| {
+            seen.insert(e.index)
+                && e.text.chars().count() <= MAX_EDIT_CHARS
+                && e.current.chars().count() <= MAX_EDIT_CHARS
+                && !e
+                    .text
+                    .chars()
+                    .any(|c| c.is_control() && c != '\n' && c != '\t')
+        });
+    if !valid {
+        return Err(INVALID_EDIT);
+    }
+    s.backend.recording(id).await?.ok_or(NOT_FOUND)?;
+    if replacing(&s.backend.jobs(id).await?, &["transcribe"]) {
+        return Err(ApiError(StatusCode::CONFLICT, "conflict"));
+    }
+    let changes: Vec<SegmentChange> = edits
+        .into_iter()
+        .map(|e| SegmentChange {
+            index: e.index,
+            current: e.current,
+            text: e.text,
+        })
+        .collect();
+    s.backend.set_transcript_edits(id, &changes).await?;
+    export_after_edit(&s, id).await
+}
+
+#[derive(Deserialize)]
+pub struct SummaryEdit {
+    title: String,
+    summary_md: String,
+    generated_title: String,
+    generated_summary_md: String,
+}
+
+pub async fn edit_summary<B: Backend>(
+    State(s): State<AppState<B>>,
+    Path(id): Path<i64>,
+    Json(body): Json<SummaryEdit>,
+) -> Result<StatusCode, ApiError> {
+    let SummaryEdit {
+        title,
+        summary_md,
+        generated_title,
+        generated_summary_md,
+    } = body;
+    let too_long = [&title, &summary_md, &generated_title, &generated_summary_md]
+        .iter()
+        .any(|f| f.chars().count() > MAX_EDIT_CHARS);
+    // A field equal to its generated text passes as sent, so a restore compares equal and drops the overlay.
+    let title_ok = title == generated_title || {
+        let t = title.trim();
+        (1..=MAX_TITLE).contains(&t.chars().count()) && !t.chars().any(char::is_control)
+    };
+    let md_ok = summary_md == generated_summary_md
+        || (summary_md.chars().count() <= MAX_SUMMARY_CHARS
+            && !summary_md
+                .chars()
+                .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t')));
+    if too_long || !title_ok || !md_ok {
+        return Err(INVALID_EDIT);
+    }
+    s.backend.recording(id).await?.ok_or(NOT_FOUND)?;
+    if replacing(&s.backend.jobs(id).await?, &["transcribe", "summarize"]) {
+        return Err(ApiError(StatusCode::CONFLICT, "conflict"));
+    }
+    let title = if title == generated_title {
+        title
+    } else {
+        title.trim().to_owned()
+    };
+    s.backend
+        .set_summary_edit(
+            id,
+            &SummaryText {
+                title: generated_title,
+                summary_md: generated_summary_md,
+            },
+            &SummaryText { title, summary_md },
+        )
+        .await?;
+    export_after_edit(&s, id).await
 }
 
 /// Inline styles stay allowed: mermaid puts a `<style>` element inside the mind map SVG.
