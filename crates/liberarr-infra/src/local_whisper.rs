@@ -65,15 +65,11 @@ fn failed(what: &str) -> Error {
 /// (killing `serve`), so the job fails cleanly instead.
 fn check_cpu() -> Result<()> {
     #[cfg(target_arch = "x86_64")]
-    let ok = ["avx", "avx2", "fma", "f16c", "bmi2"]
-        .iter()
-        .all(|f| match *f {
-            "avx" => is_x86_feature_detected!("avx"),
-            "avx2" => is_x86_feature_detected!("avx2"),
-            "fma" => is_x86_feature_detected!("fma"),
-            "f16c" => is_x86_feature_detected!("f16c"),
-            _ => is_x86_feature_detected!("bmi2"),
-        });
+    let ok = is_x86_feature_detected!("avx")
+        && is_x86_feature_detected!("avx2")
+        && is_x86_feature_detected!("fma")
+        && is_x86_feature_detected!("f16c")
+        && is_x86_feature_detected!("bmi2");
     #[cfg(all(target_arch = "aarch64", target_os = "linux"))]
     let ok = std::arch::is_aarch64_feature_detected!("lse")
         && std::arch::is_aarch64_feature_detected!("rdm")

@@ -28,6 +28,8 @@ pub const SILERO_VAD: ModelSpec = ModelSpec {
     sha256: "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987",
 };
 
+const STALE_TMP: Duration = Duration::from_secs(15 * 60);
+
 pub struct ModelStore {
     dir: PathBuf,
     http: reqwest::Client,
@@ -35,6 +37,27 @@ pub struct ModelStore {
 
 fn fail(m: &ModelSpec, why: &str) -> Error {
     Error::Provider(format!("model {}: {why}", m.name))
+}
+
+/// Drops `<name>.*.tmp` files left by a killed download. A live download keeps writing, so only files
+/// untouched for a while go; errors are ignored.
+fn remove_stale_tmp(dir: &Path, name: &str) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let file = e.file_name();
+        let file = file.to_string_lossy();
+        if file.starts_with(&format!("{name}.")) && file.ends_with(".tmp") {
+            let stale = e
+                .metadata()
+                .and_then(|md| md.modified())
+                .is_ok_and(|t| t.elapsed().is_ok_and(|age| age > STALE_TMP));
+            if stale {
+                let _ = fs::remove_file(e.path());
+            }
+        }
+    }
 }
 
 impl ModelStore {
@@ -60,6 +83,7 @@ impl ModelStore {
             return Ok(path);
         }
         fs::create_dir_all(&self.dir).map_err(|_| fail(m, "cannot create the models directory"))?;
+        remove_stale_tmp(&self.dir, m.name);
         // Per process: `serve` and the terminal app's worker may download at once.
         let tmp = self
             .dir
@@ -206,6 +230,25 @@ mod tests {
         assert_eq!(fs::read(&path).unwrap(), BODY);
         assert_eq!(store.ensure(&m).await.unwrap(), path);
         assert_eq!(hits.load(Ordering::SeqCst), 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn ensure_removes_only_stale_tmp_files() {
+        let (base, _) = serve().await;
+        let (store, dir) = store();
+        fs::create_dir_all(&dir).unwrap();
+        let stale = dir.join("test-model.bin.1.tmp");
+        let fresh = dir.join("test-model.bin.2.tmp");
+        fs::write(&fresh, b"live").unwrap();
+        let f = fs::File::create(&stale).unwrap();
+        f.set_modified(std::time::SystemTime::now() - Duration::from_secs(3600))
+            .unwrap();
+        drop(f);
+        let m = spec(format!("{base}/m"), &sha256_hex(BODY));
+        store.ensure(&m).await.unwrap();
+        assert!(!stale.exists());
+        assert!(fresh.exists());
         let _ = fs::remove_dir_all(&dir);
     }
 
