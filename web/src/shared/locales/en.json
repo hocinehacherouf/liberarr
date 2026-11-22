@@ -51,9 +51,23 @@
     },
     "steps": {
       "transcribe": "transcription",
+"diarize": "speakers",
       "summarize": "summary",
       "export": "export"
     }
+  },
+  "speakers": {
+    "label": "Speaker {{n}}",
+    "rename": "Rename this speaker",
+    "nameOf": "Name of {{label}}",
+    "save": "Save",
+    "cancel": "Cancel",
+    "renameError": "Unable to rename the speaker.",
+    "count": "Speakers",
+    "automatic": "Automatic",
+    "countHelp": "Saving runs speaker detection again.",
+    "countRefused": "Unable to change now: a step is running or speaker detection is off.",
+    "countError": "Unable to change the number of speakers."
   },
   "summaries": {
     "copy": "Copy the summary",

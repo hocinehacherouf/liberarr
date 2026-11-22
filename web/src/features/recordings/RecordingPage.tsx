@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from 'react'
+import { useCallback, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
 import { Link, useParams } from 'react-router'
@@ -10,7 +10,7 @@ import { ActionsTable } from '../summaries/ActionsTable'
 import { Mindmap } from '../summaries/Mindmap'
 import { TranscriptView } from '../transcription/TranscriptView'
 import { downloadText, transcriptCopyText, transcriptFileName, transcriptFileText } from '../transcription/text'
-import { useRecording, useRerun, type Job } from './api'
+import { useRecording, useRenameSpeaker, useRerun, useSpeakerCount, type Job } from './api'
 import { StatusBadge } from './StatusBadge'
 
 // Glyph and color of a pipeline step, as in the terminal app: the glyph alone tells the state.
@@ -20,7 +20,8 @@ const JOB: Record<Job['status'], [string, string]> = {
   running: ['◌', 'text-accent motion-safe:animate-pulse'],
   queued: ['·', 'text-muted'],
 }
-const RERUN_STEPS = ['transcribe', 'summarize', 'export'] as const
+const RERUN_STEPS = ['transcribe', 'summarize', 'diarize', 'export'] as const
+const MAX_SPEAKER_CHOICE = 10
 
 /** A pane of the page: rounded border, its title on top. */
 function Pane({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
@@ -40,6 +41,10 @@ export function RecordingPage() {
   const id = Number(useParams().id)
   const { data: rec, isLoading, isError } = useRecording(id)
   const rerun = useRerun(id)
+  const speakerCount = useSpeakerCount(id)
+  const { mutateAsync: renameSpeaker } = useRenameSpeaker(id)
+  // Stable, so the memoised transcript rows do not re-render with the page.
+  const onRename = useCallback((speaker: number, name: string) => renameSpeaker({ speaker, name }), [renameSpeaker])
   const audio = useRef<HTMLAudioElement>(null)
 
   const seek = (seconds: number) => {
@@ -69,6 +74,10 @@ export function RecordingPage() {
   const rerunDetail = rerun.error instanceof ApiError ? rerun.error.message : ''
   // The server refuses a summary rerun (409) when `liberarr init` chose no engine.
   const noEngine = rerun.error instanceof ApiError && rerun.error.status === 409 && rerun.variables === 'summarize'
+  // 409: a step is running, or speaker detection is off.
+  const countRefused = speakerCount.error instanceof ApiError && speakerCount.error.status === 409
+  const requested = rec.speakers.requested
+  const speakerName = (n: number) => rec.speakers.names[n] ?? t('speakers.label', { n: n + 1 })
   // The latest job of each step, in the order the steps first ran.
   const steps = [...new Set(rec.jobs.map((j) => j.step))].map((step) => rec.jobs.findLast((j) => j.step === step)!)
 
@@ -148,6 +157,33 @@ export function RecordingPage() {
             : t(rerunDetail ? 'recordings.retryErrorWithDetail' : 'recordings.retryError', { error: rerunDetail })}
         </p>
       )}
+      {rec.status !== 'processing' && rec.transcript && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <label htmlFor="speaker-count" className="font-semibold">
+            {t('speakers.count')}
+          </label>
+          <select
+            id="speaker-count"
+            value={requested ?? ''}
+            disabled={speakerCount.isPending}
+            onChange={(e) => speakerCount.mutate(e.target.value === '' ? null : Number(e.target.value))}
+            className="min-h-11 rounded-md border border-line bg-surface px-2 py-1.5"
+          >
+            <option value="">{t('speakers.automatic')}</option>
+            {Array.from({ length: Math.max(MAX_SPEAKER_CHOICE, requested ?? 0) }, (_, i) => (
+              <option key={i + 1} value={i + 1}>
+                {i + 1}
+              </option>
+            ))}
+          </select>
+          <span className="text-muted">{t('speakers.countHelp')}</span>
+          {speakerCount.isError && (
+            <span role="alert" className="text-err">
+              {t(countRefused ? 'speakers.countRefused' : 'speakers.countError')}
+            </span>
+          )}
+        </div>
+      )}
       {rec.status === 'processing' && (
         <p role="status" className="flex items-center gap-2 rounded-lg border border-accent/40 bg-accent/10 p-4 text-sm text-accent">
           <span aria-hidden="true" className="motion-safe:animate-pulse">
@@ -193,12 +229,15 @@ export function RecordingPage() {
           title={t('transcription.title')}
           actions={
             <>
-              <CopyButton text={transcriptCopyText(rec.transcript)} label={t('transcription.copy')} />
+              <CopyButton text={transcriptCopyText(rec.transcript, speakerName)} label={t('transcription.copy')} />
               <button
                 type="button"
                 aria-label={t('transcription.download')}
                 onClick={() =>
-                  downloadText(transcriptFileText(rec.transcript!), transcriptFileName(rec.summary?.title ?? rec.title, rec.id))
+                  downloadText(
+                    transcriptFileText(rec.transcript!, speakerName),
+                    transcriptFileName(rec.summary?.title ?? rec.title, rec.id),
+                  )
                 }
                 className="rounded-md border border-line bg-surface px-3 py-1 text-sm font-semibold hover:text-accent"
               >
@@ -207,7 +246,13 @@ export function RecordingPage() {
             </>
           }
         >
-          <TranscriptView transcript={rec.transcript} audio={audio} onSeek={seek} />
+          <TranscriptView
+            transcript={rec.transcript}
+            speakerName={speakerName}
+            onRename={onRename}
+            audio={audio}
+            onSeek={seek}
+          />
         </Pane>
       )}
     </main>

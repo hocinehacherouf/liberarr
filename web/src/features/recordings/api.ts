@@ -18,6 +18,8 @@ export interface Segment {
   start: number
   end: number
   text: string
+  /** 0-based; null without a diarization or where no speaker covers the segment. */
+  speaker: number | null
 }
 
 export interface Transcript {
@@ -52,8 +54,16 @@ export interface Job {
   updated_at: string
 }
 
+export interface Speakers {
+  turns_present: boolean
+  requested: number | null
+  /** By 0-based speaker (JSON keys are strings). */
+  names: Record<string, string>
+}
+
 export interface RecordingDetail extends RecordingItem {
   transcript: Transcript | null
+  speakers: Speakers
   summary: Summary | null
   jobs: Job[]
 }
@@ -78,6 +88,25 @@ export function useRerun(id: number) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (step: string) => api(`/api/recordings/${id}/rerun`, { method: 'POST', body: JSON.stringify({ step }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['recordings'] }),
+  })
+}
+
+export function useRenameSpeaker(id: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ speaker, name }: { speaker: number; name: string }) =>
+      api(`/api/recordings/${id}/speakers/${speaker}`, { method: 'PUT', body: JSON.stringify({ name }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['recordings', id] }),
+  })
+}
+
+/** Saves the count and diarizes again (202): the page then shows the job like any rerun. */
+export function useSpeakerCount(id: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (count: number | null) =>
+      api(`/api/recordings/${id}/speaker-count`, { method: 'PUT', body: JSON.stringify({ count }) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['recordings'] }),
   })
 }
