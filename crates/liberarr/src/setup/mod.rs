@@ -16,18 +16,25 @@ use crate::config::{is_unset, parse_routing};
 use crate::{models, providers};
 use liberarr_core::ai::{Provider, Step};
 use liberarr_core::lang::Language;
+use liberarr_infra::agent_cli::Preset;
 use rust_i18n::t;
 use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 pub type SetupResult<T> = Result<T, Box<dyn std::error::Error>>;
 /// `(variable, value)` lines to write in the `.env`.
 pub type Updates = Vec<(&'static str, String)>;
-/// Tests what the account can do: for an API provider, the models it lists; for `claude`, whether
-/// the CLI is signed in (empty list). The error text never carries the key.
+/// Tests what the account can do: for an API provider, the models it lists; for a CLI (the
+/// program's path in place of the URL), whether it answers (empty list). The error text never
+/// carries the key.
 pub type Checker<'a> = dyn Fn(Provider, &str, &str) -> Result<Vec<String>, String> + 'a;
 /// The providers that serve an OpenRouter model `(base URL, key, model)`, as routing slugs.
 pub type Routes<'a> = dyn Fn(&str, &str, &str) -> Result<Vec<String>, String> + 'a;
+
+/// The absolute path of a program by name, `None` when it is not installed.
+pub type Detector<'a> = dyn Fn(&str) -> Option<PathBuf> + 'a;
 
 /// One line of a menu: the value that is returned (and can be typed) and a short note.
 pub struct Choice {
@@ -115,6 +122,23 @@ enum Mode {
     Fill,
     /// Asks the providers again, with the current values as defaults.
     Reconfigure,
+}
+
+/// The first executable file called `name` in an absolute entry of `path`: a relative entry
+/// would follow the working directory, and the program is later run from a service.
+pub(crate) fn find_program_in(name: &str, path: &OsStr) -> Option<PathBuf> {
+    std::env::split_paths(path)
+        .filter(|dir| dir.is_absolute())
+        .map(|dir| dir.join(name))
+        .find(|f| {
+            f.metadata()
+                .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        })
+}
+
+/// [`find_program_in`] over the `PATH` of the process.
+pub(crate) fn find_program(name: &str) -> Option<PathBuf> {
+    find_program_in(name, &std::env::var_os("PATH")?)
 }
 
 /// `http(s)://host[...]`: what the HTTP client accepts as a base URL, without a URL parser.
@@ -275,10 +299,19 @@ pub fn run_setup(
     home: &Path,
     check: &Checker,
     routes: &Routes,
+    detect: &Detector,
 ) -> SetupResult<Plan> {
     let mut plan = secrets(env)?;
-    plan.updates
-        .extend(configure(p, env, Mode::Fill, ui, home, check, routes)?);
+    plan.updates.extend(configure(
+        p,
+        env,
+        Mode::Fill,
+        ui,
+        home,
+        check,
+        routes,
+        detect,
+    )?);
     if plan.updates.is_empty() && p.is_interactive() {
         let options = [
             Choice {
@@ -291,19 +324,33 @@ pub fn run_setup(
             },
         ];
         if let Picked::Option(1) = p.choose(&t!("setup.existing"), &options, Some(0))? {
-            plan.updates = configure(p, env, Mode::Reconfigure, ui, home, check, routes)?;
+            plan.updates = configure(p, env, Mode::Reconfigure, ui, home, check, routes, detect)?;
         }
     }
     Ok(plan)
 }
 
-/// Pushes `value` unless the `.env` already has exactly that.
+/// Pushes `value` unless the `.env` already has exactly that (an empty value included).
 fn set(updates: &mut Updates, env: &HashMap<String, String>, key: &'static str, value: String) {
-    if current(env, key).as_deref() != Some(value.as_str()) {
+    if env.get(key).map(|v| v.trim()) != Some(value.as_str()) {
         updates.push((key, value));
     }
 }
 
+/// The installed program of a CLI provider.
+fn program_of(provider: Provider, detect: &Detector) -> Option<PathBuf> {
+    Preset::from_provider(provider).and_then(|preset| detect(preset.program_name()))
+}
+
+/// How to sign in to a CLI, for the message shown when it does not answer.
+fn login_hint(provider: Provider) -> String {
+    match provider {
+        Provider::Claude => t!("setup.cli_login_claude").into_owned(),
+        other => format!("{} login", other.as_str()),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn configure(
     p: &mut dyn Prompter,
     env: &HashMap<String, String>,
@@ -312,13 +359,14 @@ fn configure(
     home: &Path,
     check: &Checker,
     routes: &Routes,
+    detect: &Detector,
 ) -> SetupResult<Updates> {
     let reconf = mode == Mode::Reconfigure;
     let mut updates = Updates::new();
-    // `claude auth status` is run at most once.
-    let mut claude_ok: Option<bool> = None;
-    let mut claude_ready =
-        || *claude_ok.get_or_insert_with(|| check(Provider::Claude, "", "").is_ok());
+    let clis: Vec<Provider> = CLIS
+        .into_iter()
+        .filter(|c| program_of(*c, detect).is_some())
+        .collect();
     for (step, [provider_var, url_var, key_var, model_var], [provider_q, url_q, key_q, model_q]) in
         STEPS
     {
@@ -327,29 +375,49 @@ fn configure(
             Current::Is(p) => Some(p),
             Current::Unset | Current::Off => None,
         };
+        let mut chosen_now = false;
         let provider = match known.filter(|_| !reconf) {
             Some(known) => known,
             // Chosen off: no URL, key or model question, now or later.
             None if cur == Current::Off && !reconf => continue,
             None => {
-                if step == Step::Summarize && claude_ready() {
-                    p.info(&t!("init.claude_detected"));
+                if step == Step::Summarize && !clis.is_empty() {
+                    let names: Vec<&str> = clis.iter().map(|c| c.as_str()).collect();
+                    p.info(&t!("init.cli_detected", names = names.join(", ")));
                 }
-                let Some(chosen) = ask_provider(p, &t!(provider_q), step, known)? else {
+                let Some(chosen) = ask_provider(p, &t!(provider_q), step, known, &clis)? else {
                     set(&mut updates, env, provider_var, NONE.to_string());
                     continue;
                 };
                 set(&mut updates, env, provider_var, chosen.as_str().to_string());
+                chosen_now = true;
                 chosen
             }
         };
         // Another provider: the old URL, key and model do not apply.
-        let changed = (reconf && known != Some(provider)) || provider_invalid(env, provider_var);
+        let changed = (chosen_now && !reconf)
+            || (reconf && known != Some(provider))
+            || provider_invalid(env, provider_var);
         let (default_url, default_model) = providers::defaults(provider, step);
         let own = |k: &str| current(env, k).filter(|_| !changed);
 
-        // The claude CLI has its own login: no URL, no key.
+        // A CLI has its own login: no URL, no key, but the program to run. Service managers have no
+        // shell PATH, so the path found now is written; a path already stored is kept.
         let needs_api = !provider.is_cli();
+        let mut program = String::new();
+        if !needs_api {
+            let stored = current(env, PROGRAM).filter(|_| !changed);
+            program = match stored
+                .clone()
+                .or_else(|| program_of(provider, detect).map(|path| path.display().to_string()))
+            {
+                Some(path) => {
+                    set(&mut updates, env, PROGRAM, path.clone());
+                    path
+                }
+                None => String::new(),
+            };
+        }
         let mut url = own(url_var).unwrap_or_default();
         if needs_api && (reconf || url.is_empty()) {
             let default = Some(url.as_str()).filter(|u| !u.is_empty()).or(default_url);
@@ -357,7 +425,13 @@ fn configure(
             set(&mut updates, env, url_var, url.clone());
         }
 
-        let model_asked = reconf || changed || current(env, model_var).is_none();
+        // A CLI's empty model (its own default) is a choice: it is not asked again.
+        let model_set = if provider.is_cli() {
+            env.contains_key(model_var)
+        } else {
+            current(env, model_var).is_some()
+        };
+        let model_asked = reconf || changed || !model_set;
         let mut found = Vec::new();
         let mut key = own(key_var).unwrap_or_default();
         if needs_api {
@@ -375,8 +449,13 @@ fn configure(
                     Vec::new()
                 });
             }
-        } else if model_asked && !claude_ready() {
-            p.warn(&t!("setup.claude_not_ready"));
+        } else if model_asked && test(p, check, provider, &program, "").is_err() {
+            // The login can be done later: the choice is kept.
+            p.warn(&t!(
+                "setup.cli_not_ready",
+                name = provider.as_str(),
+                login = login_hint(provider)
+            ));
         }
 
         let model = if model_asked {
@@ -441,6 +520,9 @@ fn configure(
     Ok(updates)
 }
 
+/// The CLIs a summary can go through, in menu order.
+const CLIS: [Provider; 3] = [Provider::Claude, Provider::Codex, Provider::Copilot];
+pub(crate) const PROGRAM: &str = "LIBERARR_LLM_PROGRAM";
 pub(crate) const CONTENT_LANGUAGE: &str = "LIBERARR_CONTENT_LANGUAGE";
 pub(crate) const NOTES_DIR: &str = "LIBERARR_OBSIDIAN_DIR";
 
@@ -520,17 +602,20 @@ fn ask_provider(
     question: &str,
     step: Step,
     known: Option<Provider>,
+    clis: &[Provider],
 ) -> SetupResult<Option<Provider>> {
-    let mut options: Vec<Option<Provider>> = [
-        Provider::Compatible,
-        Provider::Mistral,
-        Provider::OpenRouter,
-        Provider::Claude,
-    ]
-    .into_iter()
-    .filter(|o| o.can(step))
-    .map(Some)
-    .collect();
+    // The installed CLIs first, then the APIs.
+    let mut options: Vec<Option<Provider>> = clis
+        .iter()
+        .copied()
+        .chain([
+            Provider::Compatible,
+            Provider::Mistral,
+            Provider::OpenRouter,
+        ])
+        .filter(|o| o.can(step))
+        .map(Some)
+        .collect();
     // Only the summary is optional, and `none` is the default: never a vendor by default.
     let summary = step == Step::Summarize;
     if summary {
@@ -541,7 +626,13 @@ fn ask_provider(
         .map(|o| match o {
             Some(o) => Choice {
                 value: o.as_str().to_string(),
-                note: String::new(),
+                note: match o {
+                    Provider::Claude => "Claude Code",
+                    Provider::Codex => "ChatGPT",
+                    Provider::Copilot => "GitHub Copilot",
+                    _ => "",
+                }
+                .to_string(),
             },
             None => Choice {
                 value: NONE.to_string(),
@@ -549,10 +640,14 @@ fn ask_provider(
             },
         })
         .collect();
+    // The user always confirms: a lone CLI is only the default, never chosen for them.
     let default = options
         .iter()
         .position(|o| o.is_some() && *o == known)
-        .unwrap_or(if summary { options.len() - 1 } else { 0 });
+        .unwrap_or(match (summary, clis.len()) {
+            (true, 1) | (false, _) => 0,
+            (true, _) => options.len() - 1,
+        });
     loop {
         match p.choose(question, &choices, Some(default))? {
             Picked::Option(i) => return Ok(options[i]),
@@ -635,7 +730,12 @@ fn ask_model(
     preferred: Option<&str>,
     is_current: bool,
 ) -> SetupResult<String> {
+    // A CLI's first entry is its own default model, written as an empty value.
+    let cli = provider.is_cli();
     let mut entries: Vec<(String, String)> = Vec::new();
+    if cli {
+        entries.push((t!("init.cli_model_default").into_owned(), String::new()));
+    }
     if found.is_empty() {
         entries
             .extend(models::curated(provider, step).map(|e| (e.id.to_string(), curated_note(e))));
@@ -660,7 +760,10 @@ fn ask_model(
         }));
     }
     if let Some(m) = preferred.filter(|m| is_current && !entries.iter().any(|(v, _)| v == m)) {
-        entries.insert(0, (m.to_string(), t!("setup.current").into_owned()));
+        entries.insert(
+            usize::from(cli),
+            (m.to_string(), t!("setup.current").into_owned()),
+        );
     }
     let default = preferred
         .and_then(|m| entries.iter().position(|(v, _)| v == m))
@@ -677,6 +780,7 @@ fn ask_model(
         note: String::new(),
     });
     let model = match p.choose(question, &choices, default)? {
+        Picked::Option(0) if cli => String::new(),
         Picked::Option(i) if i < entries.len() => entries.swap_remove(i).0,
         Picked::Option(_) => p.text(question, preferred)?,
         Picked::Text(name) => name,

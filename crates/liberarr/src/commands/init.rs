@@ -63,16 +63,24 @@ pub fn apply(
     let current = parse_env(&existing);
     let ui = i18n::language(current.get("LIBERARR_LANG").map(String::as_str));
     let plan = match prompter {
-        None => setup::from_env(&current, ui, &home, |k| std::env::var(k).ok())?,
+        None => setup::from_env(
+            &current,
+            ui,
+            &home,
+            |k| std::env::var(k).ok(),
+            &setup::find_program,
+        )?,
         Some(p) => {
             let rt = tokio::runtime::Runtime::new()?;
+            let token = setup::current(&current, "CLAUDE_CODE_OAUTH_TOKEN");
             setup::run_setup(
                 p,
                 &current,
                 ui,
                 &home,
-                &|p, url, key| setup::connect(&rt, p, url, key),
+                &|p, url, key| setup::connect(&rt, p, url, key, token.as_deref()),
                 &|url, key, model| setup::routes(&rt, url, key, model),
+                &setup::find_program,
             )?
         }
     };

@@ -3,8 +3,9 @@
 //! `LIBERARR_CONTENT_LANGUAGE` and `LIBERARR_OBSIDIAN_DIR`), never from the command line.
 //! Same rules as the questions: a value already set in the `.env` wins and is never overwritten.
 use super::{
-    CONTENT_LANGUAGE, Current, NONE, NOTES_DIR, Plan, STEPS, SetupResult, current,
-    current_provider, notes_dir, provider_invalid, routing_var, secrets, valid_url,
+    CONTENT_LANGUAGE, Current, Detector, NONE, NOTES_DIR, PROGRAM, Plan, STEPS, SetupResult,
+    current, current_provider, notes_dir, program_of, provider_invalid, routing_var, secrets,
+    valid_url,
 };
 use crate::config::{is_unset, parse_routing};
 use crate::providers;
@@ -19,6 +20,7 @@ pub fn from_env(
     ui: Language,
     home: &Path,
     var: impl Fn(&str) -> Option<String>,
+    detect: &Detector,
 ) -> SetupResult<Plan> {
     let mut plan = secrets(existing)?;
     // The environment's value, unless unset or a placeholder. A control character (a newline
@@ -40,6 +42,7 @@ pub fn from_env(
         t!("setup.nonint_missing", var = k).into_owned().into()
     };
     for (step, [provider_var, url_var, key_var, model_var], _) in STEPS {
+        let mut chosen = false;
         let provider = match current_provider(existing, step, provider_var, url_var) {
             Current::Is(p) => p,
             Current::Off => continue,
@@ -60,6 +63,7 @@ pub fn from_env(
                     t!("setup.nonint_provider_invalid", var = provider_var).into_owned()
                 })?;
                 plan.updates.push((provider_var, p.as_str().to_string()));
+                chosen = true;
                 p
             }
         };
@@ -79,12 +83,30 @@ pub fn from_env(
             }
             Ok(())
         };
-        // The claude CLI has its own login: no URL, no key.
-        if !provider.is_cli() {
+        // A CLI has its own login: no URL, no key, an optional model (empty: its own default) and
+        // the program to run.
+        if provider.is_cli() {
+            if stale || !existing.contains_key(model_var) {
+                let model = from_env(model_var)?.unwrap_or_default();
+                plan.updates.push((model_var, model));
+            }
+            if stale || current(existing, PROGRAM).is_none() {
+                match program_of(provider, detect) {
+                    Some(path) => plan.updates.push((PROGRAM, path.display().to_string())),
+                    // An existing setup keeps working without it; a new choice must be usable.
+                    None if chosen => {
+                        return Err(t!("setup.nonint_program_missing", name = provider.as_str())
+                            .into_owned()
+                            .into());
+                    }
+                    None => {}
+                }
+            }
+        } else {
             want(url_var, default_url)?;
             want(key_var, None)?;
+            want(model_var, default_model)?;
         }
-        want(model_var, default_model)?;
         // Optional: absent or empty means no restriction, written as an empty value.
         let var = routing_var(step);
         if provider == Provider::OpenRouter && (stale || !existing.contains_key(var)) {
