@@ -71,15 +71,11 @@ fn transcriber(p: &Profile, vocabulary: &[String]) -> AnyTranscriber {
 
 fn llm(p: &Profile, claude_oauth_token: Option<&str>) -> AnyLlm {
     if let Some(preset) = Preset::from_provider(p.provider) {
-        // The token is the claude CLI's login; the other CLIs never see it.
-        let env = claude_oauth_token
-            .filter(|_| preset == Preset::Claude)
-            .map(|t| ("CLAUDE_CODE_OAUTH_TOKEN".to_string(), t.to_string()));
         return AnyLlm::Cli(AgentCli::new(
             preset,
             p.program.clone(),
             p.model.clone(),
-            env.into_iter().collect(),
+            claude_oauth_token.map(String::from),
         ));
     }
     let (url, key, model) = (p.base_url.clone(), p.api_key.clone(), p.model.clone());

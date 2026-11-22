@@ -35,8 +35,11 @@ Transcription forces no language: a recording mixing French and English works. P
 - **Login.** Sign in with the tool itself, once, as your own user. `LIBERARR_LLM_MODEL` is optional: empty means the tool's own default model.
 - **Servers.** A `serve` started outside your login session may not see the `claude` login. Run `claude setup-token` and put the result in `<LIBERARR_HOME>/.env` as `CLAUDE_CODE_OAUTH_TOKEN=...`: Liberarr passes it to `claude` only. Do not put it anywhere else.
 - **Docker.** The container does not see the CLIs installed on your host, so `init` finds none there. For a container, use an API provider, or no summary.
-- **Locked down.** Each CLI runs with its tools, MCP servers and file access turned off, in an empty temporary directory that is removed afterwards. The transcript reaches it on standard input, never on the command line, and the reply is validated like any other. The CLI can only answer.
-- **Tested by a canary.** A preset is only shipped after `PROBE_CLI_CANARY=<cli> cargo run -p liberarr-infra --example ai_probe` prints `leaked=no wrote=no summary_valid=yes`: a synthetic transcript asks the CLI to read a secret file, write a file and run `cat`, and nothing must happen. Run it again on every new version of a CLI before trusting it; a CLI that fails is removed, not worked around.
+- **Locked down.** Each CLI runs in an empty temporary directory that is removed afterwards. The transcript reaches it on standard input, never on the command line, and the reply is validated like any other. The CLI can only answer. How, per CLI:
+  - `claude`: no tools, no user settings, no slash commands, only the MCP servers given on the command line (none), and no session file.
+  - `codex`: your own `config.toml` (with its MCP servers) and rules are not loaded, no session file is written, the shell tool, hooks, web search, apps, plugins, browser and computer use, image viewing and generation, and multi-agent are turned off.
+  - `copilot`: shell, write and URL tools are denied, built-in MCP servers are off, your custom instructions are not loaded, and it cannot ask you questions. Your own MCP servers still load, but non-interactive mode denies every call to them. Copilot keeps a local copy of the session (see [Privacy](privacy.md#ai-providers)).
+- **Tested by a canary.** A preset is only shipped after `PROBE_CLI_CANARY=<cli> cargo run -p liberarr-infra --example ai_probe` prints `leaked=no wrote=no fetched=no summary_valid=yes`: a synthetic transcript asks the CLI to read a secret file, write a file, run `cat` and fetch a web page, and nothing must happen. Run it again on every new version of a CLI before trusting it; a CLI that fails is removed, not worked around.
 
 ## OpenRouter
 

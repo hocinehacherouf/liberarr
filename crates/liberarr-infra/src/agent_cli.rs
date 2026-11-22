@@ -64,13 +64,19 @@ pub struct AgentCli {
 
 impl AgentCli {
     /// `program`: absolute path from LIBERARR_LLM_PROGRAM, else the preset's name resolved by the OS PATH.
-    /// `model`: empty = the CLI's default (no model flag). `extra_env`: variables set on the child.
+    /// `model`: empty = the CLI's default (no model flag). `claude_oauth_token`: the claude CLI's
+    /// login where its keychain is out of reach; the other CLIs never get it.
     pub fn new(
         preset: Preset,
         program: Option<PathBuf>,
         model: String,
-        extra_env: Vec<(String, String)>,
+        claude_oauth_token: Option<String>,
     ) -> Self {
+        let extra_env = claude_oauth_token
+            .filter(|_| preset == Preset::Claude)
+            .map(|t| ("CLAUDE_CODE_OAUTH_TOKEN".to_string(), t))
+            .into_iter()
+            .collect();
         Self {
             preset,
             program: program.unwrap_or_else(|| preset.program_name().into()),
@@ -127,6 +133,9 @@ impl AgentCli {
                     "--disallow-temp-dir",
                     "--no-ask-user",
                     "--no-auto-update",
+                    // The session copy under ~/.copilot/session-state is kept anyway: no flag turns it off.
+                    "--sync-session=off",
+                    "--no-custom-instructions",
                 ]);
                 if let Some(m) = model {
                     cmd.args(["--model", m]);
@@ -141,12 +150,29 @@ impl AgentCli {
                     "--color",
                     "never",
                     "--json",
+                    // Nothing from the user's config.toml (MCP servers, hooks, rules) and no session file.
+                    "--ignore-user-config",
+                    "--ignore-rules",
+                    "--ephemeral",
                     "-c",
                     "features.shell_tool=false",
                     // Keeps the user's own hooks from running on the transcript.
                     "-c",
                     "features.hooks=false",
+                    "-c",
+                    "web_search=\"disabled\"",
                 ]);
+                for feature in [
+                    "apps",
+                    "plugins",
+                    "browser_use",
+                    "computer_use",
+                    "view_image",
+                    "multi_agent",
+                    "image_generation",
+                ] {
+                    cmd.args(["--disable", feature]);
+                }
                 if let Some(m) = model {
                     cmd.args(["-m", m]);
                 }
@@ -170,13 +196,13 @@ impl AgentCli {
         let name = self.preset.program_name();
         let err = |m: &str| Error::Provider(format!("{name} CLI {m}"));
         let dir = ScratchDir::new().map_err(|_| err("could not be started"))?;
-        let mut child = self.command(system, &dir.0).spawn().map_err(|e| {
+        let mut child = KillOnDrop(self.command(system, &dir.0).spawn().map_err(|e| {
             err(if e.kind() == std::io::ErrorKind::NotFound {
                 "not found (check PATH or LIBERARR_LLM_PROGRAM)"
             } else {
                 "could not be started"
             })
-        })?;
+        })?);
         // Threads keep the pipes flowing so a large prompt or reply cannot block the child.
         let mut stdin = child
             .stdin
@@ -194,10 +220,6 @@ impl AgentCli {
             let _ = stdout.take(MAX_OUTPUT + 1).read_to_end(&mut out);
             out
         });
-        let kill = |child: &mut std::process::Child| {
-            let _ = child.kill();
-            let _ = child.wait();
-        };
         let (mut reader, mut status, mut out) = (Some(reader), None, None);
         let deadline = Instant::now() + self.timeout;
         let (status, out) = loop {
@@ -207,7 +229,6 @@ impl AgentCli {
             if let Some(r) = reader.take_if(|r| r.is_finished()) {
                 let o = r.join().map_err(|_| err("could not be started"))?;
                 if o.len() as u64 > MAX_OUTPUT {
-                    kill(&mut child);
                     return Err(err("output too large"));
                 }
                 out = Some(o);
@@ -217,7 +238,6 @@ impl AgentCli {
                 (_, o) => out = o,
             }
             if Instant::now() >= deadline {
-                kill(&mut child);
                 // The reader is not joined: a process the CLI started can hold the pipe open.
                 // shortcut: processes started by the CLI itself (node-based CLIs) can outlive the kill; upgrade to a process group kill if it bites.
                 return Err(err("timed out"));
@@ -257,6 +277,29 @@ impl AgentCli {
                 .filter_map(|v| text(&v["item"]["text"]))
                 .next_back(),
         }
+    }
+}
+
+/// Kills and reaps the child when dropped, so every early return of `run` stops it.
+struct KillOnDrop(std::process::Child);
+
+impl std::ops::Deref for KillOnDrop {
+    type Target = std::process::Child;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for KillOnDrop {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
     }
 }
 
@@ -379,7 +422,7 @@ mod tests {
     }
 
     fn cli(p: Preset, script: &Path, model: &str) -> AgentCli {
-        AgentCli::new(p, Some(script.into()), model.into(), Vec::new())
+        AgentCli::new(p, Some(script.into()), model.into(), None)
     }
 
     #[tokio::test]
@@ -401,12 +444,21 @@ mod tests {
             assert_eq!(out.unwrap(), REPLY, "{p:?}");
             assert!(stdin.contains(MARKER), "{p:?}");
             assert!(!args.contains(MARKER), "{p:?}");
-            let lock = match p {
-                Preset::Claude => "--tools",
-                Preset::Copilot => "--deny-tool",
-                Preset::Codex => "features.shell_tool=false",
+            let locks: &[&str] = match p {
+                Preset::Claude => &["--tools"],
+                Preset::Copilot => &["--deny-tool", "--sync-session=off"],
+                Preset::Codex => &[
+                    "features.shell_tool=false",
+                    "--ignore-user-config",
+                    "--ephemeral",
+                ],
             };
-            assert!(args.lines().any(|a| a == lock), "{p:?}: {args}");
+            for lock in locks {
+                assert!(
+                    args.lines().any(|a| a == *lock),
+                    "{p:?}: {lock} not in {args}"
+                );
+            }
             let lines: Vec<&str> = args.lines().collect();
             match p {
                 // The system message is a flag for Claude, part of the prompt elsewhere.
@@ -515,9 +567,9 @@ mod tests {
     }
 
     #[test]
-    fn claude_gets_oauth_token_from_config() {
-        let env = |p: Preset, extra: Vec<(String, String)>| {
-            AgentCli::new(p, None, String::new(), extra)
+    fn only_claude_gets_the_oauth_token() {
+        let env = |p: Preset, token: Option<&str>| {
+            AgentCli::new(p, None, String::new(), token.map(String::from))
                 .command(None, Path::new("/x"))
                 .get_envs()
                 .map(|(k, v)| {
@@ -528,10 +580,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>()
         };
-        let claude = env(
-            Preset::Claude,
-            vec![("CLAUDE_CODE_OAUTH_TOKEN".into(), "tok-test".into())],
-        );
+        let claude = env(Preset::Claude, Some("tok-test"));
         for want in [
             ("CLAUDE_CODE_OAUTH_TOKEN", Some("tok-test")),
             ("ANTHROPIC_API_KEY", None),
@@ -540,8 +589,14 @@ mod tests {
             let want = (want.0.to_string(), want.1.map(String::from));
             assert!(claude.contains(&want), "{want:?} not in {claude:?}");
         }
-        let codex = env(Preset::Codex, Vec::new());
+        for p in [Preset::Codex, Preset::Copilot] {
+            let e = env(p, Some("tok-test"));
+            assert!(
+                e.iter().all(|(k, _)| k != "CLAUDE_CODE_OAUTH_TOKEN"),
+                "{p:?}: {e:?}"
+            );
+        }
+        let codex = env(Preset::Codex, None);
         assert!(codex.contains(&("OPENAI_API_KEY".into(), None)));
-        assert!(codex.iter().all(|(k, _)| k != "CLAUDE_CODE_OAUTH_TOKEN"));
     }
 }

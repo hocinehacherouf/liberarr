@@ -22,10 +22,7 @@ pub fn connect(
 ) -> Result<Vec<String>, String> {
     if let Some(preset) = Preset::from_provider(provider) {
         let program = (!url.is_empty()).then(|| PathBuf::from(url));
-        let env = oauth
-            .filter(|_| preset == Preset::Claude)
-            .map(|t| ("CLAUDE_CODE_OAUTH_TOKEN".to_string(), t.to_string()));
-        let cli = AgentCli::new(preset, program, String::new(), env.into_iter().collect())
+        let cli = AgentCli::new(preset, program, String::new(), oauth.map(String::from))
             .with_timeout(CLI_TIMEOUT);
         let hello = [ChatMessage {
             role: Role::User,

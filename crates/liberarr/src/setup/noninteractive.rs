@@ -90,7 +90,7 @@ pub fn from_env(
                 let model = from_env(model_var)?.unwrap_or_default();
                 plan.updates.push((model_var, model));
             }
-            if stale || current(existing, PROGRAM).is_none() {
+            if stale || chosen || current(existing, PROGRAM).is_none() {
                 match program_of(provider, detect) {
                     Some(path) => plan.updates.push((PROGRAM, path.display().to_string())),
                     // An existing setup keeps working without it; a new choice must be usable.

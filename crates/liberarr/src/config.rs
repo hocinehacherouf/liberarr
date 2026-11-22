@@ -2,6 +2,7 @@
 //! locates it, comes from the environment). Errors name the variable, never its value.
 use liberarr_core::ai::{Provider, Step};
 use liberarr_core::lang::Language;
+use liberarr_infra::agent_cli::Preset;
 use rust_i18n::t;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -144,7 +145,16 @@ fn load_from(
                     }
                 )
                 .into_owned(),
-                _ => t!("config.provider_unknown", var = var).into_owned(),
+                _ => t!(
+                    "config.provider_unknown",
+                    var = var,
+                    providers = match step {
+                        Step::Transcribe => "openai-compatible, mistral, openrouter",
+                        Step::Summarize =>
+                            "openai-compatible, mistral, openrouter, claude, codex, copilot",
+                    }
+                )
+                .into_owned(),
             })?,
         };
         // A CLI picks its own default model when none is set.
@@ -184,6 +194,11 @@ fn load_from(
                 let path = PathBuf::from(v.trim());
                 if !path.is_absolute() {
                     return Err(t!("config.program_not_absolute", var = var).into_owned());
+                }
+                // The preset's flags only fit its own CLI: refuse another program.
+                let name = Preset::from_provider(provider).map(Preset::program_name);
+                if path.file_name().and_then(|n| n.to_str()) != name {
+                    return Err(t!("config.program_mismatch", var = var).into_owned());
                 }
                 Some(path)
             }
@@ -376,6 +391,10 @@ LIBERARR_LLM_MODEL=gpt
         assert_eq!(llm.program, Some(PathBuf::from("/opt/codex")));
         let msg = cli("LIBERARR_LLM_PROGRAM=codex\n").err().unwrap();
         assert!(msg.contains("LIBERARR_LLM_PROGRAM"), "{msg}");
+        // Another CLI's program is refused: the lockdown flags are the preset's own.
+        let msg = cli("LIBERARR_LLM_PROGRAM=/opt/claude\n").err().unwrap();
+        assert!(msg.contains("LIBERARR_LLM_PROGRAM"), "{msg}");
+        assert!(!msg.contains("/opt/claude"), "{msg}");
     }
 
     #[test]

@@ -18,7 +18,7 @@ Nothing else is sent: no telemetry, no analytics. `pull` talks to the device ove
 
 The default summary provider is `none`: no transcript leaves your machine at that step.
 
-With `claude`, `codex` or `copilot`, the transcript text is sent by that tool to its vendor (Anthropic, OpenAI or GitHub), under your account's privacy settings there. `init` never selects one by itself. Liberarr runs these tools with their tools and file access turned off, and re-tests that lockdown with a canary probe on new versions of each CLI (see [AI providers](ai-providers.md#subscription-clis)). With OpenRouter and no `ROUTING_ONLY` list, any provider OpenRouter picks may receive them.
+With `claude`, `codex` or `copilot`, the transcript text is sent by that tool to its vendor (Anthropic, OpenAI or GitHub), under your account's privacy settings there. `init` never selects one by itself. Liberarr runs these tools with their tools and file access turned off, and re-tests that lockdown with a canary probe on new versions of each CLI (see [AI providers](ai-providers.md#subscription-clis)). Local copies: `codex` keeps none (`--ephemeral`); `claude` keeps none (`--no-session-persistence`); `copilot` keeps a session copy of the run, transcript included, under `~/.copilot/session-state`, because no flag turns that off. Delete it yourself if that matters to you. With OpenRouter and no `ROUTING_ONLY` list, any provider OpenRouter picks may receive them.
 
 ## Plaud account
 
