@@ -12,6 +12,7 @@ import { TranscriptView } from '../transcription/TranscriptView'
 import { downloadText, transcriptCopyText, transcriptFileName, transcriptFileText } from '../transcription/text'
 import { useRecording, useRenameSpeaker, useRerun, useSpeakerCount, type Job } from './api'
 import { StatusBadge } from './StatusBadge'
+import { recordingTitle } from './title'
 
 // Glyph and color of a pipeline step, as in the terminal app: the glyph alone tells the state.
 const JOB: Record<Job['status'], [string, string]> = {
@@ -36,9 +37,14 @@ function Pane({ title, actions, children }: { title: string; actions?: ReactNode
   )
 }
 
+/** Keyed by id: no state (errors, playback time, open forms) carries over from one recording to the next. */
 export function RecordingPage() {
-  const { t } = useTranslation()
   const id = Number(useParams().id)
+  return <RecordingContent key={id} id={id} />
+}
+
+function RecordingContent({ id }: { id: number }) {
+  const { t } = useTranslation()
   const { data: rec, isLoading, isError } = useRecording(id)
   const rerun = useRerun(id)
   const speakerCount = useSpeakerCount(id)
@@ -61,12 +67,12 @@ export function RecordingPage() {
   if (isLoading) return <Loading className="mx-auto max-w-5xl px-4 py-8" />
   if (isError || !rec)
     return (
-      <main className="mx-auto max-w-5xl space-y-4 px-4 py-8">
+      <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-8">
         {back}
         <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
           {t('recordings.notFound')}
         </p>
-      </main>
+      </div>
     )
 
   const failedStep = rec.status === 'failed' ? rec.failed_step : null
@@ -82,11 +88,11 @@ export function RecordingPage() {
   const steps = [...new Set(rec.jobs.map((j) => j.step))].map((step) => rec.jobs.findLast((j) => j.step === step)!)
 
   return (
-    <main className="mx-auto max-w-5xl space-y-4 px-4 py-6 sm:py-8">
+    <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-6 sm:py-8">
       <div className="space-y-2">
         {back}
         <h1 className="text-2xl font-semibold tracking-tight text-balance">
-          {rec.summary?.title ?? rec.title ?? t('recordings.untitled', { id: rec.id })}
+          {rec.summary?.title ?? recordingTitle(rec, t)}
         </h1>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted-foreground">
           <StatusBadge recording={rec} />
@@ -255,6 +261,6 @@ export function RecordingPage() {
           />
         </Pane>
       )}
-    </main>
+    </div>
   )
 }

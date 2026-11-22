@@ -1,6 +1,7 @@
 {
   "common": {
     "loading": "Loading…",
+    "search": "Search…",
     "copy": "Copy",
     "copied": "Copied",
     "copyFailed": "Copy failed: select the text by hand"
@@ -93,5 +94,20 @@
     "downloadShort": "Download",
     "title": "Transcript",
     "noTimestamps": "This provider does not return timestamps"
+  },
+  "sidebar": {
+    "title": "Sidebar",
+    "description": "Navigation between the recordings.",
+    "toggle": "Toggle the sidebar"
+  },
+  "theme": {
+    "title": "Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "palette": {
+    "title": "Command palette",
+    "description": "Search a recording, change the theme or sign out."
   }
 }

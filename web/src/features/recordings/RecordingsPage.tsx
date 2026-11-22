@@ -2,23 +2,22 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 import { Loading } from '../../shared/Loading'
+import { fold } from '../../shared/text'
 import { formatDate, formatTimestamp } from '../../shared/time'
 import { useRecordings } from './api'
 import { StatusBadge } from './StatusBadge'
+import { recordingTitle } from './title'
 
 export function RecordingsPage() {
   const { t } = useTranslation()
   const { data, isLoading, isError } = useRecordings()
   const [search, setSearch] = useState('')
   // Compared without case or accents ("reunion" finds "Réunion"), on the title as the list shows it.
-  const fold = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
   const query = fold(search.trim())
-  const matches = query
-    ? data?.filter((r) => fold(r.title ?? t('recordings.untitled', { id: r.id })).includes(query))
-    : data
+  const matches = query ? data?.filter((r) => fold(recordingTitle(r, t)).includes(query)) : data
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-6 sm:py-8">
+    <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:py-8">
       <h1 className="mb-4 flex items-baseline gap-2 text-2xl font-semibold tracking-tight">
         {t('recordings.title')}
         {data && data.length > 0 && (
@@ -63,7 +62,7 @@ export function RecordingsPage() {
                 className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1 px-4 py-3 hover:bg-primary/5 focus-visible:-outline-offset-2 sm:grid-cols-[1fr_auto_auto_auto]"
               >
                 <span className="col-span-2 truncate font-medium sm:col-span-1">
-                  {r.title ?? t('recordings.untitled', { id: r.id })}
+                  {recordingTitle(r, t)}
                 </span>
                 <span className="flex gap-3 text-sm text-muted-foreground sm:contents">
                   <time dateTime={r.created_at}>{formatDate(r.created_at)}</time>
@@ -79,6 +78,6 @@ export function RecordingsPage() {
           ))}
         </ul>
       )}
-    </main>
+    </div>
   )
 }

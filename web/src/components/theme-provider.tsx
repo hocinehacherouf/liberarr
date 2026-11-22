@@ -22,10 +22,14 @@ const subscribe = (onChange: () => void) => {
   return () => darkQuery.removeEventListener('change', onChange)
 }
 
+const isTheme = (value: string | null): value is Theme => value === 'light' || value === 'dark' || value === 'system'
+
 // Storage can throw (private mode, blocked cookies): the theme then just does not persist.
+// A stored value that is not a theme falls back to the default.
 const readStored = (key: string): Theme | null => {
   try {
-    return localStorage.getItem(key) as Theme | null
+    const stored = localStorage.getItem(key)
+    return isTheme(stored) ? stored : null
   } catch {
     return null
   }

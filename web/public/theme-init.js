@@ -3,6 +3,7 @@ var stored = null
 try {
   stored = localStorage.getItem('liberarr-theme')
 } catch {}
-if (stored === 'dark' || ((!stored || stored === 'system') && matchMedia('(prefers-color-scheme: dark)').matches)) {
+// Anything but "light" and "dark" (nothing stored, "system", garbage) follows the system.
+if (stored === 'dark' || (stored !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)) {
   document.documentElement.classList.add('dark')
 }

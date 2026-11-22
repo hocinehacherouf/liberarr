@@ -1,6 +1,7 @@
 {
   "common": {
     "loading": "Chargement…",
+    "search": "Rechercher…",
     "copy": "Copier",
     "copied": "Copié",
     "copyFailed": "Échec de la copie : sélectionnez le texte à la main"
@@ -93,5 +94,20 @@
     "downloadShort": "Télécharger",
     "title": "Transcription",
     "noTimestamps": "Ce fournisseur ne renvoie pas d'horodatage"
+  },
+  "sidebar": {
+    "title": "Barre latérale",
+    "description": "Navigation entre les enregistrements.",
+    "toggle": "Afficher ou masquer la barre latérale"
+  },
+  "theme": {
+    "title": "Thème",
+    "light": "Clair",
+    "dark": "Sombre",
+    "system": "Système"
+  },
+  "palette": {
+    "title": "Palette de commandes",
+    "description": "Rechercher un enregistrement, changer de thème ou se déconnecter."
   }
 }
