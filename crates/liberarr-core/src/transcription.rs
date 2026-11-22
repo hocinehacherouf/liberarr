@@ -35,6 +35,135 @@ impl Transcript {
     }
 }
 
+/// One correction. `index` addresses a unit (see `units`); `original` is the engine's text of that unit
+/// when the edit was made; a blank `text` removes the unit.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SegmentEdit {
+    pub index: usize,
+    pub original: String,
+    pub text: String,
+}
+
+impl SegmentEdit {
+    pub fn removes(&self) -> bool {
+        self.text.trim().is_empty()
+    }
+
+    pub fn reverts(&self) -> bool {
+        self.text.trim() == self.original.trim()
+    }
+}
+
+/// One change sent by a client: the unit it changes, the text it displayed there (the corrected text, "" for a
+/// removed segment) and the new text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SegmentChange {
+    pub index: usize,
+    pub current: String,
+    pub text: String,
+}
+
+/// The segment texts, or `[text]` (one unit, index 0) when `!t.has_timestamps`: such a transcript's segments
+/// may be partial, so the whole text is the unit.
+pub fn units(t: &Transcript) -> Vec<&str> {
+    if t.has_timestamps {
+        t.segments.iter().map(|s| s.text.as_str()).collect()
+    } else {
+        vec![t.text.as_str()]
+    }
+}
+
+/// The edit in force for each unit: the last one of its index whose `original` is still the raw unit.
+fn in_force<'a>(raw: &Transcript, edits: &'a [SegmentEdit]) -> Vec<Option<&'a SegmentEdit>> {
+    let units = units(raw);
+    let mut slots = vec![None; units.len()];
+    for e in edits {
+        if units.get(e.index).is_some_and(|u| *u == e.original) {
+            slots[e.index] = Some(e);
+        }
+    }
+    slots
+}
+
+/// The corrected text of each unit, by raw index: the stored edit's text, "" when that edit removes the unit, else the
+/// raw unit. An edit whose `original` differs from the raw unit is ignored, as in `apply_edits`.
+pub fn unit_texts<'a>(raw: &'a Transcript, edits: &'a [SegmentEdit]) -> Vec<&'a str> {
+    units(raw)
+        .into_iter()
+        .zip(in_force(raw, edits))
+        .map(|(u, e)| match e {
+            Some(e) if e.removes() => "",
+            Some(e) => e.text.as_str(),
+            None => u,
+        })
+        .collect()
+}
+
+/// Turns a batch into edits to store, each `original` taken from `raw`: `NotFound("segment")` for an index >=
+/// units(raw).len(); `Conflict("segment")` when any `current` differs (exact) from unit_texts(raw, edits)[index].
+pub fn prepare_edits(
+    raw: &Transcript,
+    edits: &[SegmentEdit],
+    changes: &[SegmentChange],
+) -> Result<Vec<SegmentEdit>> {
+    let units = units(raw);
+    let shown = unit_texts(raw, edits);
+    changes
+        .iter()
+        .map(|c| {
+            let original = units
+                .get(c.index)
+                .ok_or_else(|| Error::NotFound("segment".into()))?;
+            if shown[c.index] != c.current {
+                return Err(Error::Conflict("segment".into()));
+            }
+            Ok(SegmentEdit {
+                index: c.index,
+                original: (*original).into(),
+                text: c.text.clone(),
+            })
+        })
+        .collect()
+}
+
+/// What every reader gets. No edits: `t` unchanged. With timestamps: an edit replaces its segment's text, a removing
+/// edit drops the segment, and `text` = the trimmed non-blank segment texts joined by " ". Without timestamps: an edit
+/// at 0 replaces `text` and `segments` becomes empty. An edit whose `original` differs from the raw unit at its index is
+/// ignored (a read racing a new transcript); out-of-range indexes are ignored; the last edit of an index wins.
+pub fn apply_edits(mut t: Transcript, edits: &[SegmentEdit]) -> Transcript {
+    let slots = in_force(&t, edits);
+    if slots.iter().all(Option::is_none) {
+        return t;
+    }
+    if !t.has_timestamps {
+        // One unit: the only slot holds an edit.
+        t.text = slots[0].map(|e| e.text.clone()).unwrap_or_default();
+        t.segments.clear();
+        return t;
+    }
+    t.segments = t
+        .segments
+        .into_iter()
+        .zip(slots)
+        .filter_map(|(s, e)| match e {
+            Some(e) if e.removes() => None,
+            Some(e) => Some(Segment {
+                text: e.text.clone(),
+                ..s
+            }),
+            None => Some(s),
+        })
+        .collect();
+    t.text = t
+        .segments
+        .iter()
+        .map(|s| s.text.trim())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    t
+}
+
 /// `mm:ss`, minutes not wrapped at 60.
 pub fn timestamp(seconds: f64) -> String {
     let s = seconds.max(0.0) as u64;
@@ -86,8 +215,21 @@ pub trait AudioSplitter {
 }
 
 pub trait TranscriptRepo {
+    /// Drops the owner's edits when the new segments or text differ from the stored ones.
     async fn save(&self, recording_id: i64, transcript: &Transcript) -> Result<()>;
+    /// With the owner's edits applied (`apply_edits`).
     async fn get(&self, recording_id: i64) -> Result<Option<Transcript>>;
+}
+
+pub trait TranscriptEditRepo {
+    /// The engine's transcript, untouched, and the edits by ascending index.
+    async fn get_with_edits(
+        &self,
+        recording_id: i64,
+    ) -> Result<Option<(Transcript, Vec<SegmentEdit>)>>;
+    /// One transaction: `NotFound("transcript")` without a transcript, then `prepare_edits` against the stored raw
+    /// transcript and edits (any failure writes nothing), then each resulting edit is upserted, or deleted when it `reverts`.
+    async fn set_edits(&self, recording_id: i64, changes: &[SegmentChange]) -> Result<()>;
 }
 
 pub struct Transcribe<'a, R, P, T, S> {
@@ -198,5 +340,82 @@ mod tests {
         let t = merge_chunks(vec![(with, 0.0), (without, 1200.0)], "whisper");
         assert!(!t.has_timestamps);
         assert_eq!(t.text, "a b");
+    }
+
+    fn timed(texts: &[&str]) -> Transcript {
+        Transcript {
+            engine: "e".into(),
+            language: None,
+            text: texts.iter().map(|t| t.trim()).collect::<Vec<_>>().join(" "),
+            segments: texts
+                .iter()
+                .enumerate()
+                .map(|(i, t)| seg(i as f64 * 2.0, t))
+                .collect(),
+            has_timestamps: true,
+        }
+    }
+
+    fn edit(index: usize, original: &str, text: &str) -> SegmentEdit {
+        SegmentEdit {
+            index,
+            original: original.into(),
+            text: text.into(),
+        }
+    }
+
+    #[test]
+    fn apply_edits_replaces_removes_and_rebuilds_the_text() {
+        let t = timed(&[" Bonjour Jon", " ça va", " merci"]);
+        assert_eq!(apply_edits(t.clone(), &[]), t);
+        // An edit made on another engine text (a read racing a new transcript) is ignored.
+        assert_eq!(apply_edits(t.clone(), &[edit(0, " Bonjour Jean", "X")]), t);
+        let out = apply_edits(
+            t.clone(),
+            &[
+                edit(0, " Bonjour Jon", "Bonjour John"),
+                edit(1, " ça va", "  "),
+            ],
+        );
+        let segs: Vec<_> = out
+            .segments
+            .iter()
+            .map(|s| (s.start, s.text.as_str()))
+            .collect();
+        assert_eq!(segs, [(0.0, "Bonjour John"), (4.0, " merci")]);
+        assert_eq!(out.text, "Bonjour John merci");
+        assert!(out.has_timestamps);
+        // Everything removed: no speech, so the summary and the note skip it.
+        let all: Vec<_> = t
+            .segments
+            .iter()
+            .enumerate()
+            .map(|(i, s)| edit(i, &s.text, ""))
+            .collect();
+        assert!(!apply_edits(t, &all).has_speech());
+    }
+
+    #[test]
+    fn transcript_without_timestamps_is_one_unit() {
+        let t = Transcript {
+            engine: "e".into(),
+            language: None,
+            text: "bonjour jon".into(),
+            segments: vec![seg(0.0, "bonjour")], // partial: one chunk had no segments
+            has_timestamps: false,
+        };
+        assert_eq!(units(&t), ["bonjour jon"]);
+        let change = SegmentChange {
+            index: 1,
+            current: "x".into(),
+            text: "y".into(),
+        };
+        assert!(matches!(
+            prepare_edits(&t, &[], &[change]),
+            Err(Error::NotFound(_))
+        ));
+        let out = apply_edits(t, &[edit(0, "bonjour jon", "bonjour John")]);
+        assert_eq!(out.text, "bonjour John");
+        assert!(out.segments.is_empty() && !out.has_timestamps);
     }
 }

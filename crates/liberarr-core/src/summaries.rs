@@ -112,8 +112,33 @@ pub trait Llm {
     async fn complete_json(&self, messages: &[ChatMessage]) -> Result<String>;
 }
 
+/// The owner's title and summary, both stored whole.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SummaryText {
+    pub title: String,
+    pub summary_md: String,
+}
+
+pub trait SummaryEditRepo {
+    /// The generated summary, untouched, and the owner's title and summary when edited.
+    async fn get_with_edit(
+        &self,
+        recording_id: i64,
+    ) -> Result<Option<(MeetingSummary, Option<SummaryText>)>>;
+    /// One transaction: `NotFound("summary")` without a summary; `Conflict("summary")` when the stored generated title or
+    /// summary_md differ from `generated`; `edit == generated` deletes the overlay, else it is upserted.
+    async fn set_edit(
+        &self,
+        recording_id: i64,
+        generated: &SummaryText,
+        edit: &SummaryText,
+    ) -> Result<()>;
+}
+
 pub trait SummaryRepo {
+    /// Drops the owner's title and summary when the new title or summary_md differ.
     async fn save(&self, recording_id: i64, summary: &MeetingSummary) -> Result<()>;
+    /// `title` and `summary_md` are the owner's when edited.
     async fn get(&self, recording_id: i64) -> Result<Option<MeetingSummary>>;
     /// Sets `done` in one atomic write, only while the action at `index` still reads `action`.
     /// Returns whether it was set.

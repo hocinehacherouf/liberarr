@@ -57,6 +57,17 @@ pub fn busy(jobs: &[JobInfo]) -> bool {
         .any(|j| matches!(j.status, JobStatus::Queued | JobStatus::Running))
 }
 
+/// Whether a save must queue an `export`: not while a job is queued or a non-export step is running, as such a
+/// chain ends with an export that reads the change. A running export may have read the old text.
+pub fn export_needed(jobs: &[JobInfo]) -> bool {
+    // shortcut: a chain that stops on a failed required step never exports; a rerun recovers it
+    !jobs.iter().any(|j| match j.status {
+        JobStatus::Queued => true,
+        JobStatus::Running => j.step != "export",
+        _ => false,
+    })
+}
+
 /// The latest job of each step, in queue order: where each step stands now. `jobs` is in queue
 /// order, as `JobQueue::list_for` returns it.
 pub fn latest_by_step(jobs: &[JobInfo]) -> Vec<&JobInfo> {
@@ -187,6 +198,28 @@ mod tests {
         ];
         let latest: Vec<_> = latest_by_step(&jobs).iter().map(|j| j.id).collect();
         assert_eq!(latest, [2, 3, 4]);
+    }
+
+    #[test]
+    fn export_needed_unless_a_later_export_will_read_the_change() {
+        let job = |step: &str, status| JobInfo {
+            id: 1,
+            step: step.into(),
+            status,
+            attempts: 1,
+            error: None,
+            updated_at: jiff::Timestamp::UNIX_EPOCH,
+        };
+        assert!(export_needed(&[]));
+        assert!(export_needed(&[
+            job("export", JobStatus::Done),
+            job("diarize", JobStatus::Failed)
+        ]));
+        // A running export may have read the old text.
+        assert!(export_needed(&[job("export", JobStatus::Running)]));
+        assert!(!export_needed(&[job("export", JobStatus::Queued)]));
+        assert!(!export_needed(&[job("diarize", JobStatus::Running)]));
+        assert!(!export_needed(&[job("transcribe", JobStatus::Queued)]));
     }
 
     #[test]
