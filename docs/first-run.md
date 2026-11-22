@@ -11,7 +11,7 @@ liberarr init
 Creates `~/.liberarr` (or `LIBERARR_HOME`) and its `.env` file (mode 0600). It:
 
 - generates the secrets (`LIBERARR_SECRET_KEY`, `LIBERARR_API_KEY`) and the web UI admin password;
-- asks for the transcription provider, then the summary provider: URL, API key (hidden input), model. Each key is tested and the account's models are proposed. See [AI providers](ai-providers.md) to choose;
+- asks for the transcription provider, then the summary provider: URL, API key (hidden input), model. Each key is tested and the account's models are proposed. The summary can be left off (`none`, the default), or use a subscription CLI (`claude`, `codex`, `copilot`) that `init` found on your machine: it never picks one for you. See [AI providers](ai-providers.md) to choose;
 - asks for the language of summaries and notes (`en` or `fr`).
 - asks for the folder of the notes (`LIBERARR_OBSIDIAN_DIR`), for example inside an Obsidian vault. Default `~/.liberarr/obsidian`. The folder is created when missing; an unusable folder is refused with the reason.
 
@@ -22,7 +22,7 @@ Running `init` again is safe: values already set are kept. When everything is se
 Options:
 
 - `--ui tui`: the same questions, full-screen. `LIBERARR_UI=tui` in the shell does the same.
-- `--non-interactive`: asks nothing. Export `LIBERARR_TRANSCRIBE_PROVIDER`, `_BASE_URL`, `_API_KEY`, `_MODEL` and the same four `LIBERARR_LLM_*` variables in the shell first (keys never go on the command line). The base URL and the transcription model can be left out when the provider has a default. `LIBERARR_CONTENT_LANGUAGE` and `LIBERARR_OBSIDIAN_DIR` are optional. Fails, naming the variable, when one is missing.
+- `--non-interactive`: asks nothing. Export `LIBERARR_TRANSCRIBE_PROVIDER`, `_BASE_URL`, `_API_KEY`, `_MODEL` in the shell first (keys never go on the command line). The base URL and the transcription model can be left out when the provider has a default. The summary is optional: without any `LIBERARR_LLM_*` variable it is `none`. For an API provider set the same four `LIBERARR_LLM_*` variables; for `claude`, `codex` or `copilot` set only `LIBERARR_LLM_PROVIDER` (and `LIBERARR_LLM_MODEL` if you want one): the CLI must be on your `PATH`. `LIBERARR_CONTENT_LANGUAGE` and `LIBERARR_OBSIDIAN_DIR` are optional. Fails, naming the variable, when a required one is missing.
 
 ## 2. `liberarr link`: unlock your device (once)
 

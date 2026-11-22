@@ -33,8 +33,9 @@ Lines are `NAME=value`; `#` starts a comment.
 | `LIBERARR_TRANSCRIBE_BASE_URL` | Base URL of its API (`http://` or `https://`). |
 | `LIBERARR_TRANSCRIBE_API_KEY` | Its API key. |
 | `LIBERARR_TRANSCRIBE_MODEL` | Transcription model. |
-| `LIBERARR_LLM_PROVIDER` | Summary provider: the same values, plus `anthropic` and `claude`. |
-| `LIBERARR_LLM_BASE_URL`, `LIBERARR_LLM_API_KEY`, `LIBERARR_LLM_MODEL` | Same, for the summary. Not used with `claude`. |
+| `LIBERARR_LLM_PROVIDER` | Summary provider: `none` (default: transcript only), `claude`, `codex`, `copilot`, `openai-compatible`, `mistral` or `openrouter`. See [AI providers](ai-providers.md). |
+| `LIBERARR_LLM_BASE_URL`, `LIBERARR_LLM_API_KEY`, `LIBERARR_LLM_MODEL` | Same, for the summary. With `claude`, `codex` or `copilot` there is no URL and no key, and the model is optional (empty: the CLI's own default). Not used with `none`. |
+| `LIBERARR_LLM_PROGRAM` | `claude`, `codex` and `copilot` only: absolute path of the CLI, found by `init`. Empty: looked up on `PATH`. |
 | `LIBERARR_TRANSCRIBE_ROUTING_ONLY`, `LIBERARR_LLM_ROUTING_ONLY` | OpenRouter only: providers allowed for that step. See [AI providers](ai-providers.md#openrouter). |
 | `LIBERARR_CONTENT_LANGUAGE` | Language of summaries and note headings: `en` or `fr`. Without it, it follows the interface language and Liberarr prints a reminder. |
 | `LIBERARR_OBSIDIAN_DIR` | Folder for the exported notes, for example inside an Obsidian vault. An absolute path (`~/` is expanded); `init` creates it when missing. Default `<LIBERARR_HOME>/obsidian`. |
@@ -43,9 +44,10 @@ Lines are `NAME=value`; `#` starts a comment.
 
 | Variable | Meaning |
 |---|---|
+| `CLAUDE_CODE_OAUTH_TOKEN` | `claude` summary provider, for a `serve` that cannot reach your `claude` login (a server): the token from `claude setup-token`. Passed to `claude` only. See [AI providers](ai-providers.md#subscription-clis). |
 | `LIBERARR_LANG` | Language of the command line (messages and `--help`): `en` or `fr`. Default: the OS locale (`LC_ALL`, `LC_MESSAGES`, `LANG`), else English. |
 | `LIBERARR_COOKIE_SECURE` | `true` to set the `Secure` flag on the login cookie, when the web UI is served over HTTPS. |
-| `LIBERARR_TRANSCRIBE_VOCABULARY` | Names, acronyms and jargon the transcription should spell your way, comma-separated: `Liberarr, Plaud Note, HbA1c`. Sent with every audio upload to the transcription provider (see [Privacy](privacy.md)): as `context_bias` with `mistral`, as `keywords` with `openai` and `gpt-transcribe`. Other providers and models ignore it, and Liberarr prints a warning at start. Keep the list short: Mistral counts it in the same context window as the audio, and a request over the limit fails. |
+| `LIBERARR_TRANSCRIBE_VOCABULARY` | Names, acronyms and jargon the transcription should spell your way, comma-separated: `Liberarr, Plaud Note, HbA1c`. Sent with every audio upload to the transcription provider (see [Privacy](privacy.md)): as `context_bias` with `mistral`. Other providers ignore it, and Liberarr prints a warning at start. Keep the list short: Mistral counts it in the same context window as the audio, and a request over the limit fails. |
 
 The note export is one-way. In an existing note, Liberarr writes only between `%% liberarr:start %%` and `%% liberarr:end %%`: your own text outside these markers is kept.
 

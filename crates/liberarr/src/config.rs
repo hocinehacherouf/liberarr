@@ -140,7 +140,7 @@ fn load_from(
                     var = var,
                     alternatives = match step {
                         Step::Transcribe => "mistral, openrouter",
-                        Step::Summarize => "claude, openrouter",
+                        Step::Summarize => "claude, codex, copilot, openrouter",
                     }
                 )
                 .into_owned(),

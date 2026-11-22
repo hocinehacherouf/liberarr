@@ -24,7 +24,7 @@ No. It downloads them and keeps track of what it already has.
 Yes: `liberarr process <files…>`. See [First run](first-run.md#other-commands).
 
 **Can it run without any AI provider, fully offline?**
-Not yet. Local transcription is planned for a later version.
+Not yet. Transcription needs a provider; local transcription is planned for a later version. The summary is optional: with `LIBERARR_LLM_PROVIDER=none` (the default) no transcript is sent anywhere and you get the transcript and a note with the transcript only.
 
 **Which languages does transcription support?**
 Whatever your transcription model supports. No language is forced, so a recording mixing French and English works with a multilingual model.

@@ -32,7 +32,7 @@ Liberarr is an independent project, **not affiliated with, endorsed by or sponso
 ## Why Liberarr
 
 - **Your recordings stay yours.** Audio, transcripts and summaries live in one folder on your machine. No Liberarr server, no telemetry. Only the AI providers you configure receive audio and transcripts ([privacy](docs/privacy.md)).
-- **Any AI provider.** Mistral, OpenAI, Anthropic, OpenRouter, or any OpenAI-compatible endpoint such as a LiteLLM gateway. One provider for transcription, another for summaries if you like.
+- **Any AI provider, or none for summaries.** Mistral, OpenRouter, or any OpenAI-compatible endpoint (OpenAI, a LiteLLM gateway…) for transcription; for summaries also your own `claude`, `codex` or `copilot` subscription, or nothing at all: transcript only, no text leaves your machine at that step.
 - **One binary.** Nothing else to install. macOS and Linux.
 - **Two ways to read your results:** a full-screen terminal app and a local web UI.
 
@@ -67,7 +67,7 @@ Or with Homebrew (from the first release): `brew install hocinehacherouf/tap/lib
 ## Quick start
 
 ```sh
-liberarr init    # creates ~/.liberarr/.env: generated secrets, asks for your AI provider keys
+liberarr init    # creates ~/.liberarr/.env: generated secrets, asks for your AI provider keys (or CLIs)
 liberarr link    # one-time: fetches the device keys from your Plaud account, then tests an unlock
 liberarr pull    # pulls new recordings off the device, then processes them
 liberarr tui     # full-screen terminal app

@@ -6,7 +6,7 @@
 
 **What your agent reads goes to its AI provider.** A summary or a transcript that the agent asks for is sent to the model your agent uses (Anthropic for Claude Code, OpenAI for Codex, and so on), under that account's privacy settings. Connect it only to an agent whose provider you would trust with your meetings.
 
-- **What it can see:** every recording's title, date, duration and status, the summaries, the action items, and the transcripts. Not the audio, the device serials, the keys or the settings.
+- **What it can see:** every recording's title, date, duration and status, the summaries and action items (only when a summary provider other than `none` is set), and the transcripts. Not the audio, the device serials, the keys or the settings.
 - **Approve the calls.** Most agents ask before they call a tool; some run read-only tools without asking (for example Codex in its `writes` approval mode). Keep the approval prompts on if you want to see each read.
 - **A transcript is untrusted text.** Anyone in a meeting can say "ignore your instructions and…", and the agent reads it. Liberarr tells the agent to treat recording text as data, which is only a soft guard: the real limit is that Liberarr offers no tool that changes anything. Be careful with what else the agent can do in the same session (web access, files, commands).
 
