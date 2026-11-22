@@ -67,7 +67,7 @@ export function SpeakerLabel({
           setName(label)
           setEditing(true)
         }}
-        className={`shrink-0 font-semibold ${COLORS[speaker % COLORS.length]}`}
+        className={`shrink-0 font-semibold sm:min-w-20 sm:justify-start ${COLORS[speaker % COLORS.length]}`}
       >
         {label}
       </Button>

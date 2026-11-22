@@ -4,8 +4,8 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Route, Routes } from 'react-router'
 import './index.css'
 import '@/shared/i18n'
+import { LocalizedToaster } from '@/app/LocalizedToaster'
 import { ThemeProvider } from '@/components/theme-provider'
-import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { RequireAuth } from '@/features/auth/RequireAuth'
@@ -29,7 +29,7 @@ createRoot(document.getElementById('root')!).render(
             </Routes>
           </BrowserRouter>
         </QueryClientProvider>
-        <Toaster />
+        <LocalizedToaster />
       </TooltipProvider>
     </ThemeProvider>
   </StrictMode>,

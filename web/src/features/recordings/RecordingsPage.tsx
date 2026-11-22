@@ -39,7 +39,7 @@ export function RecordingsPage() {
           ))}
         </div>
       )}
-      {isError && (
+      {isError && !data && (
         <Alert variant="destructive">
           <AlertDescription>{t('recordings.loadError')}</AlertDescription>
         </Alert>

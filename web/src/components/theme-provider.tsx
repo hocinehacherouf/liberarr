@@ -2,11 +2,9 @@ import { createContext, useContext, useEffect, useState, useSyncExternalStore } 
 
 type Theme = 'dark' | 'light' | 'system'
 
-type ThemeProviderProps = {
-  children: React.ReactNode
-  defaultTheme?: Theme
-  storageKey?: string
-}
+// Same values as web/public/theme-init.js.
+const DEFAULT_THEME: Theme = 'system'
+const STORAGE_KEY = 'liberarr-theme'
 
 type ThemeProviderState = {
   theme: Theme
@@ -26,17 +24,17 @@ const isTheme = (value: string | null): value is Theme => value === 'light' || v
 
 // Storage can throw (private mode, blocked cookies): the theme then just does not persist.
 // A stored value that is not a theme falls back to the default.
-const readStored = (key: string): Theme | null => {
+const readStored = (): Theme | null => {
   try {
-    const stored = localStorage.getItem(key)
+    const stored = localStorage.getItem(STORAGE_KEY)
     return isTheme(stored) ? stored : null
   } catch {
     return null
   }
 }
 
-export function ThemeProvider({ children, defaultTheme = 'system', storageKey = 'liberarr-theme' }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(() => readStored(storageKey) || defaultTheme)
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [theme, setTheme] = useState<Theme>(() => readStored() || DEFAULT_THEME)
   const systemDark = useSyncExternalStore(subscribe, () => darkQuery.matches)
   const isDark = theme === 'dark' || (theme === 'system' && systemDark)
 
@@ -49,7 +47,7 @@ export function ThemeProvider({ children, defaultTheme = 'system', storageKey = 
     isDark,
     setTheme: (next: Theme) => {
       try {
-        localStorage.setItem(storageKey, next)
+        localStorage.setItem(STORAGE_KEY, next)
       } catch {
         // see readStored
       }

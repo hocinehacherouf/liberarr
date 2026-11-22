@@ -44,7 +44,7 @@ export function RecordingPage() {
 
 function RecordingContent({ id }: { id: number }) {
   const { t } = useTranslation()
-  const { data: rec, isLoading, isError } = useRecording(id)
+  const { data: rec, isLoading } = useRecording(id)
   const rerun = useRerun(id)
   const speakerCount = useSpeakerCount(id)
   const { mutateAsync: renameSpeaker } = useRenameSpeaker(id)
@@ -75,7 +75,8 @@ function RecordingContent({ id }: { id: number }) {
         <Skeleton className="h-64" />
       </div>
     )
-  if (isError || !rec)
+  // Only without data: a failed background refresh keeps the page (and the audio bar) on screen.
+  if (!rec)
     return (
       <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-6 sm:py-8">
         {back}
@@ -135,7 +136,7 @@ function RecordingContent({ id }: { id: number }) {
           {back}
           <div className="flex items-start justify-between gap-2">
             <h1 className="min-w-0 text-2xl font-semibold tracking-tight text-balance wrap-break-word">{title}</h1>
-            {!processing && <RecordingMenu disabled={rerun.isPending} onRerun={rerunStep} />}
+            <RecordingMenu id={id} disabled={processing || rerun.isPending} onRerun={rerunStep} />
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted-foreground">
             <StatusBadge recording={rec} />

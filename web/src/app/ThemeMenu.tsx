@@ -1,13 +1,7 @@
-import { MonitorIcon, MoonIcon, SunIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { THEMES } from '@/app/themes'
 import { useTheme } from '@/components/theme-provider'
 import { DropdownMenuRadioGroup, DropdownMenuRadioItem } from '@/components/ui/dropdown-menu'
-
-const THEMES = [
-  ['light', SunIcon],
-  ['dark', MoonIcon],
-  ['system', MonitorIcon],
-] as const
 
 /** The three theme choices, as the radio items of a dropdown menu. */
 export function ThemeMenu() {

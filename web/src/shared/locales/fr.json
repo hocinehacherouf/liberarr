@@ -4,7 +4,8 @@
     "search": "Rechercher…",
     "copy": "Copier",
     "copied": "Copié",
-    "copyFailed": "Échec de la copie : sélectionnez le texte à la main"
+    "copyFailed": "Échec de la copie : sélectionnez le texte à la main",
+    "notifications": "Notifications"
   },
   "auth": {
     "username": "Identifiant",
@@ -33,7 +34,8 @@
     "retryError": "Impossible de relancer l'étape.",
     "retryErrorWithDetail": "Impossible de relancer l'étape. {{error}}",
     "noSummaryEngine": "Aucun moteur de résumé n'est configuré. Lance `liberarr init` pour en choisir un.",
-    "rerunTitle": "Relancer une étape",
+    "moreActions": "Autres actions",
+    "downloadAudio": "Télécharger l'audio",
     "rerunHelp": "Les étapes suivantes seront également relancées.",
     "rerunStep": "Relancer « {{step}} »",
     "noSpeech": "Aucune parole",
@@ -62,7 +64,6 @@
     "play": "Lecture",
     "pause": "Pause",
     "position": "Position de lecture",
-    "speed": "Vitesse",
     "speedValue": "Vitesse : {{rate}}"
   },
   "speakers": {

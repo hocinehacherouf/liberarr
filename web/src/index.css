@@ -1,6 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import "./shadcn.css";
 @import "@fontsource-variable/inter";
 
 @custom-variant dark (&:is(.dark *));
@@ -88,10 +88,6 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
-:focus-visible {
-  @apply outline-2 outline-offset-2 outline-ring;
-}
-
 .dark {
   color-scheme: dark;
   --background: oklch(0.145 0 0);
@@ -138,5 +134,9 @@
   }
   html {
     @apply font-sans;
+  }
+  /* In the base layer so the utilities of the shadcn controls (focus-visible:ring-*) win over it. */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-ring;
   }
 }

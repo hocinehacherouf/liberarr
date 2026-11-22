@@ -4,7 +4,8 @@
     "search": "Search…",
     "copy": "Copy",
     "copied": "Copied",
-    "copyFailed": "Copy failed: select the text by hand"
+    "copyFailed": "Copy failed: select the text by hand",
+    "notifications": "Notifications"
   },
   "auth": {
     "username": "Username",
@@ -33,7 +34,8 @@
     "retryError": "Unable to retry the step.",
     "retryErrorWithDetail": "Unable to retry the step. {{error}}",
     "noSummaryEngine": "No summary engine is configured. Run `liberarr init` to choose one.",
-    "rerunTitle": "Run a step again",
+    "moreActions": "More actions",
+    "downloadAudio": "Download the audio",
     "rerunHelp": "The steps that follow will run again too.",
     "rerunStep": "Rerun {{step}}",
     "noSpeech": "No speech",
@@ -62,7 +64,6 @@
     "play": "Play",
     "pause": "Pause",
     "position": "Playback position",
-    "speed": "Speed",
     "speedValue": "Speed: {{rate}}"
   },
   "speakers": {

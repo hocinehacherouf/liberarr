@@ -1,7 +1,8 @@
-import { LogOutIcon, MonitorIcon, MoonIcon, SunIcon } from 'lucide-react'
+import { LogOutIcon } from 'lucide-react'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
+import { THEMES } from '@/app/themes'
 import { useTheme } from '@/components/theme-provider'
 import {
   Command,
@@ -18,14 +19,10 @@ import { recordingStatus } from '@/features/recordings/StatusBadge'
 import { recordingTitle } from '@/features/recordings/title'
 import { fold } from '@/shared/text'
 
-const THEMES = [
-  ['light', SunIcon],
-  ['dark', MoonIcon],
-  ['system', MonitorIcon],
-] as const
-
 // cmdk's own matching is accent-sensitive: compare folded text, as the sidebar search does.
-const filter = (value: string, search: string) => (fold(value).includes(fold(search.trim())) ? 1 : 0)
+// A recording's value starts with its id (see below): drop it, or typing a digit would match ids.
+const filter = (value: string, search: string) =>
+  fold(value.replace(/^\d+ /, '')).includes(fold(search.trim())) ? 1 : 0
 
 /** Cmd/Ctrl+K: jump to a recording, switch the theme, sign out. */
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
