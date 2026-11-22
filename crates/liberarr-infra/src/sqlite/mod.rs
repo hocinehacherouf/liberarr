@@ -490,6 +490,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reset_stale_queues_the_export_after_a_crashing_diarize() {
+        let t = TempDb::new("crashloop-diarize");
+        let rec = {
+            let db = Db::open(&t.path()).unwrap();
+            let rec = db.add(new_rec("h1")).await.unwrap();
+            db.enqueue(rec, "diarize").await.unwrap();
+            rec
+        };
+        for _ in 1..=3 {
+            let db = Db::open(&t.path()).unwrap();
+            db.reset_stale().await.unwrap();
+            db.claim_next().await.unwrap().unwrap();
+        }
+        let db = Db::open(&t.path()).unwrap();
+        db.reset_stale().await.unwrap();
+        let jobs = db.list_for(rec).await.unwrap();
+        let seen: Vec<_> = jobs.iter().map(|j| (j.step.as_str(), j.status)).collect();
+        assert_eq!(
+            seen,
+            [
+                ("diarize", JobStatus::Failed),
+                ("export", JobStatus::Queued)
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn reset_stale_spares_jobs_of_live_worker() {
         let t = TempDb::new("live");
         let a = Db::open(&t.path()).unwrap();

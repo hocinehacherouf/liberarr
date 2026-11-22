@@ -13,7 +13,7 @@ config.program_mismatch: "%{var} doit être l'exécutable du CLI choisi (claude,
 config.cannot_transcribe: "%{var} : ce fournisseur ne sait pas transcrire"
 config.cannot_summarize: "%{var} : ce fournisseur ne sait pas résumer"
 config.content_language_unknown: "LIBERARR_CONTENT_LANGUAGE n'est pas reconnu (en, fr)"
-config.diarize_invalid: "LIBERARR_DIARIZE doit valoir on ou off"
+config.diarize_invalid: "%{var} doit valoir on ou off"
 config.content_language_follows_ui: "Les notes sont écrites en %{language}, la langue de l'interface. Renseignez LIBERARR_CONTENT_LANGUAGE dans le .env pour la figer."
 ask.input_closed: "entrée fermée"
 process.running: "Traitement (transcription, résumé, locuteurs, export)…"

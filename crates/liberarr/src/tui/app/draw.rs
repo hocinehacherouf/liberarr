@@ -161,7 +161,10 @@ fn stepper(jobs: &[JobInfo]) -> Line<'static> {
             Some(JobStatus::Running) => (spinner().to_string(), theme::accent()),
             Some(JobStatus::Queued) => ("○".to_string(), theme::accent()),
             Some(JobStatus::Failed) => ("✗".to_string(), theme::error()),
-            None if reached.is_some_and(|r| n < r) => ("✓".to_string(), theme::ok()),
+            // Recordings from before diarization existed never ran it: not a ✓.
+            None if *step != "diarize" && reached.is_some_and(|r| n < r) => {
+                ("✓".to_string(), theme::ok())
+            }
             None => ("·".to_string(), theme::dim()),
         };
         spans.push(Span::styled(format!("{mark} {step}"), style));

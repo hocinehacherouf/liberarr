@@ -157,7 +157,7 @@ export function RecordingPage() {
             : t(rerunDetail ? 'recordings.retryErrorWithDetail' : 'recordings.retryError', { error: rerunDetail })}
         </p>
       )}
-      {rec.status !== 'processing' && rec.transcript && (
+      {rec.status !== 'processing' && rec.transcript?.has_timestamps && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <label htmlFor="speaker-count" className="font-semibold">
             {t('speakers.count')}

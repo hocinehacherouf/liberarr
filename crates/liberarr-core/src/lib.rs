@@ -296,10 +296,12 @@ mod fakes {
     }
 
     /// One speaker over the first two seconds; counts calls and keeps the last requested count.
+    /// `unsupported` makes it refuse the audio, like the real one does for non-Ogg files.
     #[derive(Default)]
     pub struct FakeDiarizer {
         pub calls: Cell<u32>,
         pub last_count: Cell<Option<u32>>,
+        pub unsupported: bool,
     }
     impl Diarizer for FakeDiarizer {
         async fn diarize(
@@ -309,6 +311,9 @@ mod fakes {
         ) -> Result<Vec<SpeakerTurn>> {
             self.calls.set(self.calls.get() + 1);
             self.last_count.set(speakers);
+            if self.unsupported {
+                return Err(crate::Error::Unsupported("fake".into()));
+            }
             Ok(vec![SpeakerTurn {
                 start: 0.0,
                 end: 2.0,

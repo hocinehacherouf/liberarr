@@ -68,7 +68,7 @@ pub async fn process_and_report(app: &App, ids: &[i64]) -> Result<bool, liberarr
     if ids.is_empty() {
         return Ok(true);
     }
-    let mut ok = true;
+    let (mut ok, mut any_failed) = (true, false);
     for &id in ids {
         let jobs = app.db.list_for(id).await?;
         // The latest job of each step: a failed optional step shows although the export ran after it.
@@ -79,6 +79,7 @@ pub async fn process_and_report(app: &App, ids: &[i64]) -> Result<bool, liberarr
         {
             let optional = OPTIONAL_STEPS.contains(&j.step.as_str());
             required_failed |= !optional;
+            any_failed = true;
             let key = if optional {
                 "process.optional_failed"
             } else {
@@ -116,7 +117,8 @@ pub async fn process_and_report(app: &App, ids: &[i64]) -> Result<bool, liberarr
             "{}",
             t!("process.notes_dir", path = app.cfg.obsidian.display())
         );
-    } else {
+    }
+    if any_failed {
         println!("{}", t!("process.retry_hint"));
     }
     Ok(ok)

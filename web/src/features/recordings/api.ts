@@ -55,7 +55,6 @@ export interface Job {
 }
 
 export interface Speakers {
-  turns_present: boolean
   requested: number | null
   /** By 0-based speaker (JSON keys are strings). */
   names: Record<string, string>

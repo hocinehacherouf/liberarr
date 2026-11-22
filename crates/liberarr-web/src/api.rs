@@ -209,7 +209,6 @@ impl From<JobInfo> for JobView {
 
 #[derive(Serialize)]
 pub struct SpeakersView {
-    turns_present: bool,
     requested: Option<u32>,
     /// By 0-based speaker (JSON keys are strings).
     names: BTreeMap<u32, String>,
@@ -254,7 +253,6 @@ pub async fn detail<B: Backend>(
             .await?
             .map(|t| TranscriptView::new(t, turns)),
         speakers: SpeakersView {
-            turns_present: diarization.is_some(),
             requested: s.backend.requested_speakers(id).await?,
             names: s.backend.speaker_names(id).await?,
         },

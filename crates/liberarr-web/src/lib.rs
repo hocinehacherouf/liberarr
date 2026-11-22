@@ -554,7 +554,7 @@ mod tests {
         .await;
         assert_eq!(
             d["speakers"],
-            serde_json::json!({"turns_present": true, "requested": 2, "names": {"0": "Alice"}})
+            serde_json::json!({"requested": 2, "names": {"0": "Alice"}})
         );
         let speakers: Vec<_> = d["transcript"]["segments"]
             .as_array()

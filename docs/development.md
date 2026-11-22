@@ -6,7 +6,7 @@ You need Rust (version pinned in `rust-toolchain.toml`) and Node (build-time onl
 
 ## Speaker diarization (sherpa-onnx)
 
-Local diarization links a prebuilt static archive of sherpa-onnx and onnxruntime (about 20 MB). The build script of the `sherpa-onnx-sys` crate downloads it from GitHub **without any checksum** and caches it under `target/sherpa-onnx-prebuilt/`. On your own machine you can let it do that. CI and release builds never do: they fetch the archive with `packaging/fetch-sherpa-onnx.sh`, which checks it against `packaging/sherpa-onnx.sha256` and sets `SHERPA_ONNX_ARCHIVE_DIR`. To build the same way (platform: `osx-arm64`, `osx-x64`, `linux-x64` or `linux-aarch64`):
+Local diarization links a prebuilt static archive of sherpa-onnx and onnxruntime (about 20 MB). The build script of the `sherpa-onnx-sys` crate downloads it from GitHub **without any checksum** and caches it under `target/sherpa-onnx-prebuilt/`. On your own machine you can let it do that. CI and release builds never do: they fetch the archive with `packaging/fetch-sherpa-onnx.sh`, which checks it against `packaging/sherpa-onnx.sha256` and sets `SHERPA_ONNX_ARCHIVE_DIR`. `SHERPA_ONNX_ARCHIVE_DIR` only applies on a clean target: the build script reuses a cached library, so run `rm -rf target/sherpa-onnx-prebuilt` first. To build the same way (platform: `osx-arm64`, `osx-x64`, `linux-x64` or `linux-aarch64`):
 
 ```sh
 packaging/fetch-sherpa-onnx.sh osx-arm64 target/sherpa-archives

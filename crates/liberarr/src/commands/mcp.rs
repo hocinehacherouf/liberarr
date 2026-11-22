@@ -56,6 +56,7 @@ pub async fn run(app: &App) -> Outcome {
         db: app.db.clone(),
         audit: Audit::open(&app.cfg.home.join("mcp-audit.log")),
         initialized: false,
+        speaker: app.cfg.content_language.note_labels().speaker,
     };
     server
         .serve(BufReader::new(tokio::io::stdin()), tokio::io::stdout())
@@ -73,6 +74,8 @@ struct Server {
     audit: Audit,
     /// A legacy client opened with `initialize`: later requests without `_meta` are served.
     initialized: bool,
+    /// The default speaker label, in the content language like the note.
+    speaker: &'static str,
 }
 
 struct RpcError {
@@ -417,7 +420,7 @@ impl Server {
                 Some(speaker_label(
                     speaker_for(s.start, s.end, turns)?,
                     &names,
-                    "Speaker",
+                    self.speaker,
                 ))
             })
             .collect();
@@ -804,6 +807,7 @@ mod tests {
             db,
             audit,
             initialized: false,
+            speaker: "Speaker",
         };
         (home, server, id)
     }

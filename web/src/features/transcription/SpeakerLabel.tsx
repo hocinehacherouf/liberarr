@@ -40,6 +40,8 @@ export function SpeakerLabel({
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
+    // The unedited default label ("Speaker 1") must not be stored as a name.
+    if (name === label) return setEditing(false)
     setPending(true)
     setFailed(false)
     try {

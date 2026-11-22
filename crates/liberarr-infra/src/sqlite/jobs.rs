@@ -1,6 +1,6 @@
 //! `JobQueue` on SQLite. Claims are atomic across processes.
 use super::{Db, now, parse_ts, storage, write_tx};
-use liberarr_core::jobs::{Job, JobInfo, JobQueue, JobStatus};
+use liberarr_core::jobs::{Job, JobInfo, JobQueue, JobStatus, OPTIONAL_STEPS, next_step};
 use liberarr_core::{Error, Result};
 use rusqlite::{OptionalExtension, params};
 use std::fs::TryLockError;
@@ -129,15 +129,32 @@ impl JobQueue for Db {
         let requeued = if sole {
             self.run(|c| {
                 let t = now();
-                c.execute(
+                let tx = write_tx(c)?;
+                let doomed: Vec<(i64, String)> = tx
+                    .prepare("SELECT recording_id, step FROM jobs WHERE status = 'running' AND attempts >= 3")?
+                    .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                    .collect::<rusqlite::Result<_>>()?;
+                tx.execute(
                     "UPDATE jobs SET status = 'failed', error = 'stopped after repeated crashes', updated_at = ?1
                      WHERE status = 'running' AND attempts >= 3",
                     [&t],
                 )?;
-                let n = c.execute(
+                // Like `run_job_once`: an optional step's failure must not stop the chain.
+                for (recording_id, step) in doomed {
+                    if OPTIONAL_STEPS.contains(&step.as_str())
+                        && let Some(next) = next_step(&step)
+                    {
+                        tx.execute(
+                            "INSERT INTO jobs (recording_id, step, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)",
+                            params![recording_id, next, t],
+                        )?;
+                    }
+                }
+                let n = tx.execute(
                     "UPDATE jobs SET status = 'queued', updated_at = ?1 WHERE status = 'running'",
                     [&t],
                 )?;
+                tx.commit()?;
                 Ok(n as u64)
             })
             .await

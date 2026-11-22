@@ -81,8 +81,8 @@ pub struct Diarize<'a, R, T, D, S> {
 }
 
 impl<R: RecordingRepo, T: TranscriptRepo, D: Diarizer, S: DiarizationRepo> Diarize<'_, R, T, D, S> {
-    /// Skips (Ok, nothing saved) when no segment could be labelled: no transcript, no speech or
-    /// no timestamps.
+    /// Skips (Ok, nothing saved) when no segment could be labelled: no transcript, no speech, no
+    /// timestamps, or audio the diarizer cannot read (cloud transcripts of non-Ogg files).
     pub async fn run(&self, recording_id: i64) -> Result<()> {
         let labellable = self
             .transcripts
@@ -98,7 +98,10 @@ impl<R: RecordingRepo, T: TranscriptRepo, D: Diarizer, S: DiarizationRepo> Diari
             .await?
             .ok_or_else(|| Error::NotFound("recording".into()))?;
         let speakers = self.store.requested_speakers(recording_id).await?;
-        let turns = self.diarizer.diarize(&rec.audio_path, speakers).await?;
+        let turns = match self.diarizer.diarize(&rec.audio_path, speakers).await {
+            Err(Error::Unsupported(_)) => return Ok(()),
+            r => r?,
+        };
         let d = Diarization {
             turns,
             engine: self.diarizer.engine().into(),
@@ -196,6 +199,24 @@ mod tests {
             assert_eq!(diarizer.calls.get(), 0);
             assert!(store.saved.borrow().is_empty());
         }
+    }
+
+    #[test]
+    fn diarize_skips_audio_the_diarizer_does_not_support() {
+        let (recs, transcripts, store) = setup(Some(transcript("bonjour", true)));
+        let diarizer = FakeDiarizer {
+            unsupported: true,
+            ..Default::default()
+        };
+        let uc = Diarize {
+            recordings: &recs,
+            transcripts: &transcripts,
+            diarizer: &diarizer,
+            store: &store,
+        };
+        block_on(uc.run(1)).unwrap();
+        assert_eq!(diarizer.calls.get(), 1);
+        assert!(store.saved.borrow().is_empty());
     }
 
     #[test]
