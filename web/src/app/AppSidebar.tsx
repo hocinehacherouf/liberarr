@@ -34,7 +34,7 @@ import {
   SidebarRail,
   useSidebar,
 } from '@/components/ui/sidebar'
-import { ThemeMenu } from './ThemeMenu'
+import { ThemeMenu } from '@/app/ThemeMenu'
 
 function RecordingsMenu({ search }: { search: string }) {
   const { t } = useTranslation()

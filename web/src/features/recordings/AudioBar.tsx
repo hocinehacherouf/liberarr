@@ -38,7 +38,8 @@ export function AudioBar({
   const [playing, setPlaying] = useState(false)
   const [rate, setRate] = useState(1)
   // Before the metadata is loaded the element reports NaN (or Infinity for some streams): use the recording's own duration.
-  const total = Number.isFinite(duration) && duration > 0 ? duration : durationHint
+  const hint = durationHint != null && Number.isFinite(durationHint) && durationHint > 0 ? durationHint : null
+  const total = Number.isFinite(duration) && duration > 0 ? duration : hint
 
   useEffect(() => {
     const el = audio.current
@@ -52,6 +53,10 @@ export function AudioBar({
       ['ratechange', () => setRate(el.playbackRate)],
     ]
     for (const [type, fn] of listeners) el.addEventListener(type, fn)
+    // Events fired before this effect ran (cached file, StrictMode remount) are missed: read the element once.
+    setDuration(el.duration)
+    setPlaying(!el.paused)
+    setRate(el.playbackRate)
     return () => {
       for (const [type, fn] of listeners) el.removeEventListener(type, fn)
     }
@@ -116,7 +121,7 @@ export function AudioBar({
               <Button
                 variant="ghost"
                 size="sm"
-                aria-label={`${t('player.speed')}: ${speed(rate)}`}
+                aria-label={t('player.speedValue', { rate: speed(rate) })}
                 className="shrink-0 tabular-nums max-md:h-11"
               />
             }

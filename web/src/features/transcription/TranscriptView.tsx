@@ -46,7 +46,7 @@ const Row = memo(function Row({
         {formatTimestamp(s.start)}
       </Button>
       {s.speaker != null && label != null && <SpeakerLabel speaker={s.speaker} label={label} onRename={onRename} />}
-      <button type="button" tabIndex={-1} onClick={() => onSeek(s.start)} className="min-w-0 flex-1 py-0.5 text-left">
+      <button type="button" tabIndex={-1} onClick={() => onSeek(s.start)} className="min-w-0 basis-full py-0.5 text-left sm:flex-1 sm:basis-0">
         {s.text}
       </button>
     </li>

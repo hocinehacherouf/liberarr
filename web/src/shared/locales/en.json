@@ -62,7 +62,8 @@
     "play": "Play",
     "pause": "Pause",
     "position": "Playback position",
-    "speed": "Speed"
+    "speed": "Speed",
+    "speedValue": "Speed: {{rate}}"
   },
   "speakers": {
     "label": "Speaker {{n}}",

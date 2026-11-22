@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
 import { Separator } from '@/components/ui/separator'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
-import { AppSidebar } from './AppSidebar'
-import { CommandPalette } from './CommandPalette'
+import { AppSidebar } from '@/app/AppSidebar'
+import { CommandPalette } from '@/app/CommandPalette'
 
 const SHORTCUT = /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘K' : 'Ctrl K'
 

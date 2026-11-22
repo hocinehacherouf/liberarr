@@ -117,10 +117,12 @@ function RecordingContent({ id }: { id: number }) {
       onError: (e) => toast.error(t(e instanceof ApiError && e.status === 409 ? 'speakers.countRefused' : 'speakers.countError')),
     })
 
+  // An empty transcript (a recording with no speech) gets no tab and no speaker-count control.
+  const transcript = rec.transcript && (rec.transcript.segments.length > 0 || rec.transcript.text.trim() !== '') ? rec.transcript : null
   // A tab exists only when its data does; the first one is the default.
   const tabs = [
     rec.summary && 'summary',
-    rec.transcript && 'transcript',
+    transcript && 'transcript',
     rec.summary && 'actions',
     rec.summary && 'mindmap',
   ].filter((v): v is string => !!v)
@@ -238,12 +240,12 @@ function RecordingContent({ id }: { id: number }) {
                 </TabsContent>
               </>
             )}
-            {rec.transcript && (
+            {transcript && (
               <TabsContent value="transcript">
                 <Card>
                   <CardContent className="space-y-4">
                     <div className="flex flex-wrap items-center gap-2">
-                      {!processing && rec.transcript.has_timestamps && (
+                      {!processing && transcript.has_timestamps && (
                         <>
                           <Label htmlFor="speaker-count">{t('speakers.count')}</Label>
                           <Select
@@ -268,7 +270,7 @@ function RecordingContent({ id }: { id: number }) {
                         </>
                       )}
                       <div className="ml-auto flex items-center gap-2">
-                        <CopyButton text={transcriptCopyText(rec.transcript, speakerName)} label={t('transcription.copy')} />
+                        <CopyButton text={transcriptCopyText(transcript, speakerName)} label={t('transcription.copy')} />
                         <Button
                           variant="outline"
                           size="sm"
@@ -276,7 +278,7 @@ function RecordingContent({ id }: { id: number }) {
                           className="max-md:h-11"
                           onClick={() =>
                             downloadText(
-                              transcriptFileText(rec.transcript!, speakerName),
+                              transcriptFileText(transcript, speakerName),
                               transcriptFileName(rec.summary?.title ?? rec.title, rec.id),
                             )
                           }
@@ -287,7 +289,7 @@ function RecordingContent({ id }: { id: number }) {
                       </div>
                     </div>
                     <TranscriptView
-                      transcript={rec.transcript}
+                      transcript={transcript}
                       speakerName={speakerName}
                       onRename={onRename}
                       audio={audio}
