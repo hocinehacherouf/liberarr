@@ -8,6 +8,7 @@ pub mod ble;
 pub mod files;
 mod http;
 pub mod keystore;
+pub mod local_diarizer;
 pub mod local_whisper;
 pub mod mistral;
 pub mod model_list;

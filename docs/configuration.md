@@ -10,7 +10,7 @@ Everything lives in `LIBERARR_HOME`, default `~/.liberarr`:
 | `liberarr.db` | The database: recordings, transcripts, summaries, jobs. |
 | `audio/` | The original audio, never modified. |
 | `device/` | Device keys (encrypted) and partial downloads. |
-| `models/` | The local Whisper model and voice-activity model, downloaded once (about 575 MB). Not in backups. |
+| `models/` | The local Whisper model, the voice-activity model and the speaker models, downloaded once (about 620 MB). Not in backups. |
 | `obsidian/` | Exported notes, unless `LIBERARR_OBSIDIAN_DIR` is set. |
 
 `LIBERARR_HOME` must be on a local disk: the job worker uses file locks, which are unreliable on network filesystems and some Docker bind mounts.
@@ -47,6 +47,7 @@ Lines are `NAME=value`; `#` starts a comment.
 |---|---|
 | `CLAUDE_CODE_OAUTH_TOKEN` | `claude` summary provider, for a `serve` that cannot reach your `claude` login (a server): the token from `claude setup-token`. Passed to `claude` only. See [AI providers](ai-providers.md#subscription-clis). |
 | `LIBERARR_LANG` | Language of the command line (messages and `--help`): `en` or `fr`. Default: the OS locale (`LC_ALL`, `LC_MESSAGES`, `LANG`), else English. |
+| `LIBERARR_DIARIZE` | `on` (default) or `off`: label who speaks in each transcript line, locally. See [Speaker labels](speakers.md). |
 | `LIBERARR_COOKIE_SECURE` | `true` to set the `Secure` flag on the login cookie, when the web UI is served over HTTPS. |
 | `LIBERARR_TRANSCRIBE_VOCABULARY` | Names, acronyms and jargon the transcription should spell your way, comma-separated: `Liberarr, Plaud Note, HbA1c`. Sent with every audio upload to the transcription provider (see [Privacy](privacy.md)): as `context_bias` with `mistral`. `local` and the other providers ignore it, and Liberarr prints a warning at start. Keep the list short: Mistral counts it in the same context window as the audio, and a request over the limit fails. |
 

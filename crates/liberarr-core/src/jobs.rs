@@ -2,7 +2,9 @@
 use crate::Result;
 
 /// The pipeline, in order. A step's success enqueues the next one.
-pub const STEPS: [&str; 3] = ["transcribe", "summarize", "export"];
+pub const STEPS: [&str; 4] = ["transcribe", "summarize", "diarize", "export"];
+/// Steps whose failure is recorded but does not stop the chain: the export still runs.
+pub const OPTIONAL_STEPS: [&str; 1] = ["diarize"];
 pub const MAX_ERROR: usize = 2000;
 
 pub fn next_step(step: &str) -> Option<&'static str> {
@@ -55,6 +57,16 @@ pub fn busy(jobs: &[JobInfo]) -> bool {
         .any(|j| matches!(j.status, JobStatus::Queued | JobStatus::Running))
 }
 
+/// The latest job of each step, in queue order: where each step stands now. `jobs` is in queue
+/// order, as `JobQueue::list_for` returns it.
+pub fn latest_by_step(jobs: &[JobInfo]) -> Vec<&JobInfo> {
+    jobs.iter()
+        .enumerate()
+        .filter(|(i, j)| !jobs[i + 1..].iter().any(|l| l.step == j.step))
+        .map(|(_, j)| j)
+        .collect()
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Rerun {
     Queued(String),
@@ -72,10 +84,16 @@ pub async fn rerun<Q: JobQueue>(q: &Q, recording_id: i64, step: Option<&str>) ->
     }
     let step = match step {
         Some(s) => s.to_string(),
-        // The last job is the one that stopped the chain; an earlier failure was rerun since.
-        None => match jobs.last() {
-            Some(j) if j.status == JobStatus::Failed => j.step.clone(),
-            _ => return Ok(Rerun::NothingFailed),
+        // The latest failure that no later success of the same step has replaced. Not just the
+        // last job: a failed optional step is followed by the jobs after it.
+        None => match jobs.iter().enumerate().rev().find(|(i, j)| {
+            j.status == JobStatus::Failed
+                && !jobs[i + 1..]
+                    .iter()
+                    .any(|l| l.step == j.step && l.status == JobStatus::Done)
+        }) {
+            Some((_, j)) => j.step.clone(),
+            None => return Ok(Rerun::NothingFailed),
         },
     };
     q.enqueue(recording_id, &step).await?;
@@ -102,6 +120,12 @@ pub async fn run_job_once<Q: JobQueue, H: StepHandler>(q: &Q, handlers: &H) -> R
         Err(e) => {
             let msg: String = e.to_string().chars().take(MAX_ERROR).collect();
             q.fail(&job, &msg).await?;
+            if OPTIONAL_STEPS.contains(&job.step.as_str())
+                && let Some(next) = next_step(&job.step)
+            {
+                // shortcut: a crash between fail and enqueue stops the chain; a rerun recovers it
+                q.enqueue(job.recording_id, next).await?;
+            }
         }
     }
     Ok(true)
@@ -146,6 +170,26 @@ mod tests {
     }
 
     #[test]
+    fn latest_by_step_keeps_the_newest_job_of_each_step() {
+        let job = |id, step: &str, status| JobInfo {
+            id,
+            step: step.into(),
+            status,
+            attempts: 1,
+            error: None,
+            updated_at: jiff::Timestamp::UNIX_EPOCH,
+        };
+        let jobs = [
+            job(1, "diarize", JobStatus::Failed),
+            job(2, "export", JobStatus::Done),
+            job(3, "diarize", JobStatus::Done),
+            job(4, "summarize", JobStatus::Failed),
+        ];
+        let latest: Vec<_> = latest_by_step(&jobs).iter().map(|j| j.id).collect();
+        assert_eq!(latest, [2, 3, 4]);
+    }
+
+    #[test]
     fn rerun_failed_step_once() {
         let q = MemJobs::default();
         block_on(q.enqueue(1, "transcribe")).unwrap();
@@ -162,8 +206,58 @@ mod tests {
         // Once the rerun succeeds, nothing is left failed.
         block_on(run_job_once(&q, &FailAt("none"))).unwrap();
         assert_eq!(q.rows().len(), 3, "success chains to summarize");
-        block_on(run_job_once(&q, &FailAt("none"))).unwrap();
-        block_on(run_job_once(&q, &FailAt("none"))).unwrap();
+        for _ in 0..3 {
+            block_on(run_job_once(&q, &FailAt("none"))).unwrap();
+        }
+        assert_eq!(block_on(rerun(&q, 1, None)).unwrap(), Rerun::NothingFailed);
+    }
+
+    #[test]
+    fn optional_step_failure_continues_the_chain() {
+        let q = MemJobs::default();
+        let h = FailAt("diarize");
+        block_on(q.enqueue(1, "diarize")).unwrap();
+        block_on(run_job_once(&q, &h)).unwrap();
+        let rows = q.rows();
+        assert_eq!(rows[0].1, JobStatus::Failed);
+        assert_eq!(
+            (rows[1].0.as_str(), rows[1].1),
+            ("export", JobStatus::Queued)
+        );
+
+        // A required step still stops the chain.
+        let q = MemJobs::default();
+        block_on(q.enqueue(1, "summarize")).unwrap();
+        block_on(run_job_once(&q, &FailAt("summarize"))).unwrap();
+        assert_eq!(q.rows().len(), 1);
+    }
+
+    #[test]
+    fn rerun_none_picks_a_failed_optional_step() {
+        let q = MemJobs::default();
+        let h = FailAt("diarize");
+        block_on(q.enqueue(1, "transcribe")).unwrap();
+        for _ in 0..4 {
+            block_on(run_job_once(&q, &h)).unwrap();
+        }
+        let steps: Vec<_> = q.rows().into_iter().map(|r| (r.0, r.1)).collect();
+        assert_eq!(
+            steps,
+            [
+                ("transcribe".to_string(), JobStatus::Done),
+                ("summarize".to_string(), JobStatus::Done),
+                ("diarize".to_string(), JobStatus::Failed),
+                ("export".to_string(), JobStatus::Done),
+            ]
+        );
+        assert_eq!(
+            block_on(rerun(&q, 1, None)).unwrap(),
+            Rerun::Queued("diarize".into())
+        );
+        // Once the rerun succeeds (and the export after it), nothing is left failed.
+        for _ in 0..2 {
+            block_on(run_job_once(&q, &FailAt("none"))).unwrap();
+        }
         assert_eq!(block_on(rerun(&q, 1, None)).unwrap(), Rerun::NothingFailed);
     }
 }

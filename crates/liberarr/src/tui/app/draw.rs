@@ -4,7 +4,8 @@ use super::{Areas, Focus, Fx, Phase, TABS, Tab, Ui, WIDE, lock};
 use crate::commands::pull::{Transfer, mb};
 use crate::tui::text::{markdown, mindmap};
 use crate::tui::{LOGO, MIN_HEIGHT, MIN_WIDTH, hints, motion, pane, spinner, sweep, theme};
-use liberarr_core::jobs::{JobInfo, JobStatus, STEPS};
+use liberarr_core::diarization::{speaker_for, speaker_label};
+use liberarr_core::jobs::{JobInfo, JobStatus, STEPS, latest_by_step};
 use liberarr_core::recordings::{RecordingItem, RecordingStatus};
 use liberarr_core::transcription::timestamp;
 use ratatui::Frame;
@@ -137,27 +138,34 @@ fn row(i: &RecordingItem, max: usize) -> Line<'static> {
     Line::from(spans)
 }
 
-/// Where the pipeline stands, from the jobs: the steps before the latest job are done, the
-/// ones after it wait.
+/// Where the pipeline stands, from the latest job of each step (so a failed optional step still
+/// shows after the jobs that followed it). While a job is queued or running, the steps after it
+/// wait. A step without a job counts as done when a later one has run.
 fn stepper(jobs: &[JobInfo]) -> Line<'static> {
-    let at = jobs.last().and_then(|j| {
-        let step = STEPS.iter().position(|s| *s == j.step)?;
-        Some((step, j.status))
-    });
+    let position = |step: &str| STEPS.iter().position(|s| *s == step);
+    let latest = latest_by_step(jobs);
+    let reached = latest.iter().filter_map(|j| position(&j.step)).max();
+    let waiting_after = jobs
+        .last()
+        .filter(|j| matches!(j.status, JobStatus::Queued | JobStatus::Running))
+        .and_then(|j| position(&j.step));
     let mut spans = Vec::new();
     for (n, step) in STEPS.iter().enumerate() {
         if n > 0 {
             spans.push(dim(" ── "));
         }
-        let (mark, style) = match at {
-            Some((latest, status)) if n == latest => match status {
-                JobStatus::Done => ("✓".to_string(), theme::ok()),
-                JobStatus::Running => (spinner().to_string(), theme::accent()),
-                JobStatus::Queued => ("○".to_string(), theme::accent()),
-                JobStatus::Failed => ("✗".to_string(), theme::error()),
-            },
-            Some((latest, _)) if n < latest => ("✓".to_string(), theme::ok()),
-            _ => ("·".to_string(), theme::dim()),
+        let status = latest.iter().find(|j| j.step == *step).map(|j| j.status);
+        let (mark, style) = match status {
+            _ if waiting_after.is_some_and(|w| n > w) => ("·".to_string(), theme::dim()),
+            Some(JobStatus::Done) => ("✓".to_string(), theme::ok()),
+            Some(JobStatus::Running) => (spinner().to_string(), theme::accent()),
+            Some(JobStatus::Queued) => ("○".to_string(), theme::accent()),
+            Some(JobStatus::Failed) => ("✗".to_string(), theme::error()),
+            // Recordings from before diarization existed never ran it: not a ✓.
+            None if *step != "diarize" && reached.is_some_and(|r| n < r) => {
+                ("✓".to_string(), theme::ok())
+            }
+            None => ("·".to_string(), theme::dim()),
         };
         spans.push(Span::styled(format!("{mark} {step}"), style));
     }
@@ -495,10 +503,9 @@ impl Ui {
         let block = pane(Line::from(format!(" {name} ")), focused);
         let inner = block.inner(area).inner(Margin::new(1, 0));
         f.render_widget(block, area);
-        let error = d
-            .jobs
-            .last()
-            .filter(|j| j.status == JobStatus::Failed)
+        let error = latest_by_step(&d.jobs)
+            .into_iter()
+            .rfind(|j| j.status == JobStatus::Failed)
             .and_then(|j| j.error.as_deref());
         let mut status = Line::default();
         if let Some(i) = item {
@@ -605,10 +612,17 @@ impl Ui {
                     .segments
                     .iter()
                     .map(|s| {
-                        Line::from(vec![
-                            dim(&format!("{}  ", timestamp(s.start))),
-                            Span::raw(s.text.trim().to_string()),
-                        ])
+                        let mut spans = vec![dim(&format!("{}  ", timestamp(s.start)))];
+                        let who = d
+                            .diarization
+                            .as_ref()
+                            .and_then(|z| speaker_for(s.start, s.end, &z.turns));
+                        if let Some(n) = who {
+                            let label = speaker_label(n, &d.names, &t!("tui.speaker"));
+                            spans.push(Span::styled(format!("{label}: "), theme::accent()));
+                        }
+                        spans.push(Span::raw(s.text.trim().to_string()));
+                        Line::from(spans)
                     })
                     .collect(),
             },

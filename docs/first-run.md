@@ -43,7 +43,7 @@ A key pair already stored is kept; `liberarr link --force` fetches a new one.
 liberarr pull
 ```
 
-Wake the device and close the Plaud app on your phone first: the device talks to one Bluetooth client at a time. `pull` finds the device (about 12 s), downloads new recordings with progress, then processes them: transcription, summary, export of a note. The first local transcription downloads the Whisper model (575 MB) first.
+Wake the device and close the Plaud app on your phone first: the device talks to one Bluetooth client at a time. `pull` finds the device (about 12 s), downloads new recordings with progress, then processes them: transcription, summary, speaker labels, export of a note. The first local transcription downloads the Whisper model (575 MB) first, and the first diarization the speaker models (46 MB).
 
 - A dropped download resumes on the next `pull`.
 - A recording already pulled is never pulled again.
@@ -72,7 +72,7 @@ Each processed recording is also written as a Markdown note in `~/.liberarr/obsi
 | Command | What it does |
 |---|---|
 | `liberarr process <files…>` | Imports local audio files and runs the pipeline on them. A file already imported is not duplicated. Ogg files of any size work. Other formats need a cloud transcriber (`local` reads Ogg Opus only) and must stay under about 24 MB (the providers' upload limit). Prints the number (`#id`) of each recording. |
-| `liberarr rerun <id> [--step transcribe\|summarize\|export]` | Queues a step again, and the steps after it. Without `--step`: the failed step (an error if none failed). Refused while the recording is being processed. Prior outputs are kept until the step succeeds. The step runs in `serve` or `tui`, or with the next `pull` or `process`. |
+| `liberarr rerun <id> [--step transcribe\|summarize\|diarize\|export]` | Queues a step again, and the steps after it. Without `--step`: the failed step (an error if none failed). Refused while the recording is being processed. Prior outputs are kept until the step succeeds. The step runs in `serve` or `tui`, or with the next `pull` or `process`. |
 | `liberarr status` | Known devices, last pull, number of recordings in progress, failed or without speech. |
 
 A recording with no speech (a pocket recording, silence) gets a transcript but no summary and no note.

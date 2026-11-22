@@ -51,9 +51,23 @@
     },
     "steps": {
       "transcribe": "transcription",
+"diarize": "locuteurs",
       "summarize": "résumé",
       "export": "export"
     }
+  },
+  "speakers": {
+    "label": "Locuteur {{n}}",
+    "rename": "Renommer ce locuteur",
+    "nameOf": "Nom de {{label}}",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "renameError": "Impossible de renommer le locuteur.",
+    "count": "Locuteurs",
+    "automatic": "Automatique",
+    "countHelp": "L'enregistrement relance la détection des locuteurs.",
+    "countRefused": "Modification impossible : une étape est en cours ou la détection des locuteurs est désactivée.",
+    "countError": "Impossible de modifier le nombre de locuteurs."
   },
   "summaries": {
     "copy": "Copier le résumé",

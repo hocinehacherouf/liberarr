@@ -2,7 +2,18 @@
 
 For contributors building Liberarr from source. Users only need the binary (see [Install](install.md)).
 
-You need Rust (version pinned in `rust-toolchain.toml`) and Node (build-time only, for the web UI). Local transcription builds whisper.cpp from source: you also need `cmake`, a C++ compiler and libclang (Linux: `cmake`, `g++`, `libclang-dev`; macOS: Xcode command line tools and `brew install cmake`). On Linux also `libdbus-1-dev` and `pkg-config`. Nothing is downloaded at build time; the models are downloaded at run time.
+You need Rust (version pinned in `rust-toolchain.toml`) and Node (build-time only, for the web UI). Local transcription builds whisper.cpp from source: you also need `cmake`, a C++ compiler and libclang (Linux: `cmake`, `g++`, `libclang-dev`; macOS: Xcode command line tools and `brew install cmake`). On Linux also `libdbus-1-dev` and `pkg-config`. The models are downloaded at run time.
+
+## Speaker diarization (sherpa-onnx)
+
+Local diarization links a prebuilt static archive of sherpa-onnx and onnxruntime (about 20 MB). The build script of the `sherpa-onnx-sys` crate downloads it from GitHub **without any checksum** and caches it under `target/sherpa-onnx-prebuilt/`. On your own machine you can let it do that. CI and release builds never do: they fetch the archive with `packaging/fetch-sherpa-onnx.sh`, which checks it against `packaging/sherpa-onnx.sha256` and sets `SHERPA_ONNX_ARCHIVE_DIR`. `SHERPA_ONNX_ARCHIVE_DIR` only applies on a clean target: the build script reuses a cached library, so run `rm -rf target/sherpa-onnx-prebuilt` first. To build the same way (platform: `osx-arm64`, `osx-x64`, `linux-x64` or `linux-aarch64`):
+
+```sh
+packaging/fetch-sherpa-onnx.sh osx-arm64 target/sherpa-archives
+SHERPA_ONNX_ARCHIVE_DIR="$PWD/target/sherpa-archives" cargo build --release
+```
+
+Never cache `target/` in a workflow: the build script reuses `target/sherpa-onnx-prebuilt/` without any check. Bumping `sherpa-onnx` needs the new archives' SHA-256 in `packaging/sherpa-onnx.sha256` (CI fails until it is there) and the licence texts in `NOTICE` and `packaging/THIRD-PARTY-onnxruntime.txt` re-checked.
 
 ## With mise (optional)
 

@@ -56,6 +56,15 @@
         "update: minor"
       ],
       "automerge": true
+    },
+    {
+      "description": "sherpa-onnx links a prebuilt native archive: a bump needs the new archives' SHA-256 in packaging/sherpa-onnx.sha256 (CI fails closed until then), so it gets its own PR and is never merged by Renovate.",
+      "matchPackageNames": [
+        "sherpa-onnx*"
+      ],
+      "groupName": "sherpa-onnx",
+      "groupSlug": "sherpa-onnx",
+      "automerge": false
     }
   ],
   "platformAutomerge": false

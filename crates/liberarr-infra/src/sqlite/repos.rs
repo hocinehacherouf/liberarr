@@ -1,6 +1,7 @@
-//! Recording, transcript, summary and device-ledger ports on SQLite.
-use super::{Db, now, parse_ts, storage};
+//! Recording, transcript, diarization, summary and device-ledger ports on SQLite.
+use super::{Db, now, parse_ts, storage, write_tx};
 use liberarr_core::device::ports::DeviceLedger;
+use liberarr_core::diarization::{Diarization, DiarizationRepo, SpeakerTurn};
 use liberarr_core::recordings::{
     NewRecording, Recording, RecordingItem, RecordingRepo, RecordingStatus, Source,
 };
@@ -9,7 +10,7 @@ use liberarr_core::transcription::{Segment, Transcript, TranscriptRepo};
 use liberarr_core::{Error, Result};
 use rusqlite::types::Type;
 use rusqlite::{OptionalExtension, params};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// Fixed message: serde errors can quote the stored (private) content.
@@ -115,25 +116,35 @@ impl RecordingRepo for Db {
         Ok(())
     }
 
-    /// Latest job decides the status; the summary title wins over the recording title.
+    /// A queued or running job makes it processing; else a step whose latest job failed makes it
+    /// failed (so a failed optional step still shows after the jobs that follow it). The summary
+    /// title wins over the recording title.
     /// "No speech" is derived from the stored transcript, not stored on its own.
     async fn list_items(&self) -> Result<Vec<RecordingItem>> {
         self.run(|c| {
             let mut stmt = c.prepare(
                 "SELECT r.id, COALESCE(s.title, r.title), r.source, r.duration_s, r.created_at,
-                        j.status, CASE WHEN j.status = 'failed' THEN j.step END,
+                        EXISTS (SELECT 1 FROM jobs WHERE recording_id = r.id
+                                AND status IN ('queued', 'running')),
+                        (SELECT f.step FROM jobs f
+                         WHERE f.recording_id = r.id AND f.status = 'failed'
+                           AND f.id = (SELECT MAX(id) FROM jobs
+                                       WHERE recording_id = r.id AND step = f.step)
+                         ORDER BY f.id DESC LIMIT 1),
                         COALESCE(trim(t.text, char(32, 9, 10, 13)) = '', 0)
                  FROM recordings r
                  LEFT JOIN summaries s ON s.recording_id = r.id
                  LEFT JOIN transcripts t ON t.recording_id = r.id
-                 LEFT JOIN jobs j ON j.id = (SELECT MAX(id) FROM jobs WHERE recording_id = r.id)
                  ORDER BY r.created_at DESC, r.id DESC",
             )?;
             stmt.query_map([], |r| {
-                let status = match r.get::<_, Option<String>>(5)?.as_deref() {
-                    Some("queued" | "running") => RecordingStatus::Processing,
-                    Some("failed") => RecordingStatus::Failed,
-                    _ => RecordingStatus::Done,
+                let failed_step: Option<String> = r.get(6)?;
+                let status = if r.get(5)? {
+                    RecordingStatus::Processing
+                } else if failed_step.is_some() {
+                    RecordingStatus::Failed
+                } else {
+                    RecordingStatus::Done
                 };
                 Ok(RecordingItem {
                     id: r.get(0)?,
@@ -141,7 +152,7 @@ impl RecordingRepo for Db {
                     source: parse_source(2, &r.get::<_, String>(2)?)?,
                     duration_s: r.get(3)?,
                     created_at: parse_ts(4, &r.get::<_, String>(4)?)?,
-                    failed_step: r.get(6)?,
+                    failed_step: failed_step.filter(|_| status == RecordingStatus::Failed),
                     no_speech: status == RecordingStatus::Done && r.get(7)?,
                     status,
                 })
@@ -200,6 +211,129 @@ impl TranscriptRepo for Db {
                 },
             )
             .optional()
+        })
+        .await
+    }
+}
+
+impl DiarizationRepo for Db {
+    async fn get(&self, recording_id: i64) -> Result<Option<Diarization>> {
+        self.run(move |c| {
+            c.query_row(
+                "SELECT engine, turns FROM diarizations WHERE recording_id = ?1",
+                [recording_id],
+                |r| {
+                    let turns: Vec<(f64, f64, u32)> = serde_json::from_str(&r.get::<_, String>(1)?)
+                        .map_err(|_| corrupt_json(1))?;
+                    Ok(Diarization {
+                        engine: r.get(0)?,
+                        turns: turns
+                            .into_iter()
+                            .map(|(start, end, speaker)| SpeakerTurn {
+                                start,
+                                end,
+                                speaker,
+                            })
+                            .collect(),
+                    })
+                },
+            )
+            .optional()
+        })
+        .await
+    }
+
+    async fn save(&self, recording_id: i64, d: &Diarization) -> Result<()> {
+        // Turns as `[start, end, speaker]` triples.
+        let turns = serde_json::to_string(
+            &d.turns
+                .iter()
+                .map(|t| (t.start, t.end, t.speaker))
+                .collect::<Vec<_>>(),
+        )
+        .map_err(storage)?;
+        let engine = d.engine.clone();
+        self.run(move |c| {
+            let tx = write_tx(c)?;
+            let old: Option<String> = tx
+                .query_row(
+                    "SELECT turns FROM diarizations WHERE recording_id = ?1",
+                    [recording_id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            // Speakers are renumbered on every run: names of another numbering would mislead.
+            if old.is_some_and(|o| o != turns) {
+                tx.execute(
+                    "DELETE FROM speaker_names WHERE recording_id = ?1",
+                    [recording_id],
+                )?;
+            }
+            tx.execute(
+                "INSERT INTO diarizations (recording_id, engine, turns) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(recording_id) DO UPDATE SET engine = excluded.engine,
+                   turns = excluded.turns",
+                params![recording_id, engine, turns],
+            )?;
+            tx.commit()
+        })
+        .await
+    }
+
+    async fn requested_speakers(&self, recording_id: i64) -> Result<Option<u32>> {
+        self.run(move |c| {
+            Ok(c.query_row(
+                "SELECT requested_speakers FROM speaker_settings WHERE recording_id = ?1",
+                [recording_id],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten())
+        })
+        .await
+    }
+
+    async fn set_requested_speakers(&self, recording_id: i64, n: Option<u32>) -> Result<()> {
+        self.run(move |c| {
+            c.execute(
+                "INSERT INTO speaker_settings (recording_id, requested_speakers) VALUES (?1, ?2)
+                 ON CONFLICT(recording_id) DO UPDATE SET
+                   requested_speakers = excluded.requested_speakers",
+                params![recording_id, n],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn names(&self, recording_id: i64) -> Result<BTreeMap<u32, String>> {
+        self.run(move |c| {
+            let mut stmt =
+                c.prepare("SELECT speaker, name FROM speaker_names WHERE recording_id = ?1")?;
+            stmt.query_map([recording_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect()
+        })
+        .await
+    }
+
+    async fn set_name(&self, recording_id: i64, speaker: u32, name: Option<&str>) -> Result<()> {
+        let name = name
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map(str::to_owned);
+        self.run(move |c| {
+            match name {
+                Some(name) => c.execute(
+                    "INSERT INTO speaker_names (recording_id, speaker, name) VALUES (?1, ?2, ?3)
+                     ON CONFLICT(recording_id, speaker) DO UPDATE SET name = excluded.name",
+                    params![recording_id, speaker, name],
+                )?,
+                None => c.execute(
+                    "DELETE FROM speaker_names WHERE recording_id = ?1 AND speaker = ?2",
+                    params![recording_id, speaker],
+                )?,
+            };
+            Ok(())
         })
         .await
     }

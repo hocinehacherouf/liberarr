@@ -40,6 +40,7 @@ Liberarr is an independent project, **not affiliated with, endorsed by or sponso
 
 - **Device pull over Bluetooth:** `liberarr pull` copies new recordings straight off the device. Local audio files work too (`liberarr process`).
 - **Transcript**, timestamped, French and English mixed in the same recording. Local Whisper by default, no account and no key.
+- **Speaker labels**, found locally (two small models, 46 MB, no voiceprint stored): who said what in the web UI, the terminal app and the note, with the number of speakers and the names editable in the web UI ([speakers](docs/speakers.md)).
 - **Summary**, **mind map** and **action table** for each recording.
 - **Obsidian export:** each recording becomes a Markdown note in the folder of your choice.
 - **Terminal app** (`liberarr tui`): one dashboard with the recordings, the selected one's summary, transcript, mind map and actions to tick, the pipeline and the device pull.

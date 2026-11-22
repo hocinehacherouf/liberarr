@@ -7,6 +7,7 @@
 pub mod ai;
 pub mod audio;
 pub mod device;
+pub mod diarization;
 pub mod error;
 pub mod exports;
 pub mod jobs;
@@ -20,6 +21,7 @@ pub use error::{Error, Result};
 /// In-memory fakes of every port, shared by the inline unit tests.
 #[cfg(test)]
 mod fakes {
+    use crate::diarization::{Diarization, DiarizationRepo, Diarizer, SpeakerTurn};
     use crate::exports::NoteStore;
     use crate::jobs::{Job, JobInfo, JobQueue, JobStatus};
     use crate::recordings::{
@@ -29,7 +31,7 @@ mod fakes {
     use crate::transcription::{Transcript, TranscriptRepo};
     use crate::{Error, Result};
     use std::cell::{Cell, RefCell};
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
     use std::future::Future;
     use std::path::{Path, PathBuf};
     use std::pin::pin;
@@ -242,6 +244,84 @@ mod fakes {
                 .borrow_mut()
                 .pop()
                 .ok_or_else(|| Error::Provider("no scripted reply".into()))
+        }
+    }
+
+    #[derive(Default)]
+    pub struct MemDiarizations {
+        pub saved: RefCell<HashMap<i64, Diarization>>,
+        pub requested: RefCell<HashMap<i64, u32>>,
+        pub names: RefCell<HashMap<(i64, u32), String>>,
+    }
+    impl DiarizationRepo for MemDiarizations {
+        async fn get(&self, recording_id: i64) -> Result<Option<Diarization>> {
+            Ok(self.saved.borrow().get(&recording_id).cloned())
+        }
+        async fn save(&self, recording_id: i64, d: &Diarization) -> Result<()> {
+            self.saved.borrow_mut().insert(recording_id, d.clone());
+            Ok(())
+        }
+        async fn requested_speakers(&self, recording_id: i64) -> Result<Option<u32>> {
+            Ok(self.requested.borrow().get(&recording_id).copied())
+        }
+        async fn set_requested_speakers(&self, recording_id: i64, n: Option<u32>) -> Result<()> {
+            match n {
+                Some(n) => self.requested.borrow_mut().insert(recording_id, n),
+                None => self.requested.borrow_mut().remove(&recording_id),
+            };
+            Ok(())
+        }
+        async fn names(&self, recording_id: i64) -> Result<BTreeMap<u32, String>> {
+            Ok(self
+                .names
+                .borrow()
+                .iter()
+                .filter(|((id, _), _)| *id == recording_id)
+                .map(|((_, speaker), name)| (*speaker, name.clone()))
+                .collect())
+        }
+        async fn set_name(
+            &self,
+            recording_id: i64,
+            speaker: u32,
+            name: Option<&str>,
+        ) -> Result<()> {
+            let key = (recording_id, speaker);
+            match name.map(str::trim).filter(|n| !n.is_empty()) {
+                Some(n) => self.names.borrow_mut().insert(key, n.into()),
+                None => self.names.borrow_mut().remove(&key),
+            };
+            Ok(())
+        }
+    }
+
+    /// One speaker over the first two seconds; counts calls and keeps the last requested count.
+    /// `unsupported` makes it refuse the audio, like the real one does for non-Ogg files.
+    #[derive(Default)]
+    pub struct FakeDiarizer {
+        pub calls: Cell<u32>,
+        pub last_count: Cell<Option<u32>>,
+        pub unsupported: bool,
+    }
+    impl Diarizer for FakeDiarizer {
+        async fn diarize(
+            &self,
+            _audio_path: &Path,
+            speakers: Option<u32>,
+        ) -> Result<Vec<SpeakerTurn>> {
+            self.calls.set(self.calls.get() + 1);
+            self.last_count.set(speakers);
+            if self.unsupported {
+                return Err(crate::Error::Unsupported("fake".into()));
+            }
+            Ok(vec![SpeakerTurn {
+                start: 0.0,
+                end: 2.0,
+                speaker: 0,
+            }])
+        }
+        fn engine(&self) -> &str {
+            "fake"
         }
     }
 

@@ -9,6 +9,7 @@ use crate::commands::pull::{Transfer, pull};
 use crate::config::Config;
 use crate::container::{self, App};
 use liberarr_core::device::ports::KeyStore;
+use liberarr_core::diarization::Diarization;
 use liberarr_core::jobs::{JobInfo, JobQueue, Rerun, STEPS, rerun, run_job_once};
 use liberarr_core::recordings::{RecordingItem, RecordingStatus};
 use liberarr_core::summaries::{MeetingSummary, SummaryRepo};
@@ -24,6 +25,7 @@ use ratatui::layout::{Position, Rect};
 use ratatui::style::Style;
 use ratatui::widgets::ListState;
 use rust_i18n::t;
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use tachyonfx::EffectManager;
@@ -90,6 +92,9 @@ enum Focus {
 struct Detail {
     id: i64,
     transcript: Option<Transcript>,
+    /// The stored turns and the owner's names: the transcript lines are matched to them when drawn.
+    diarization: Option<Diarization>,
+    names: BTreeMap<u32, String>,
     summary: Option<MeetingSummary>,
     jobs: Vec<JobInfo>,
 }
@@ -318,6 +323,8 @@ impl Ui {
                 id,
                 jobs: self.rt.block_on(self.app.jobs(id))?,
                 transcript: self.rt.block_on(self.app.transcript(id))?,
+                diarization: self.rt.block_on(self.app.diarization(id))?,
+                names: self.rt.block_on(self.app.speaker_names(id))?,
                 summary: self.rt.block_on(self.app.summary(id))?,
             });
         }
@@ -723,6 +730,7 @@ mod tests {
                 content_language_set: false,
                 cookie_secure: false,
                 claude_oauth_token: None,
+                diarize: false,
             })
             .unwrap(),
         );
@@ -814,6 +822,19 @@ mod tests {
             },
         ))
         .unwrap();
+        rt.block_on(liberarr_core::diarization::DiarizationRepo::save(
+            &app.db,
+            done,
+            &Diarization {
+                turns: vec![liberarr_core::diarization::SpeakerTurn {
+                    start: 0.0,
+                    end: 2.0,
+                    speaker: 0,
+                }],
+                engine: "fake".into(),
+            },
+        ))
+        .unwrap();
         let failed = add("Failed one", "2026-03-01T10:00:00Z");
         rt.block_on(app.db.enqueue(failed, "transcribe")).unwrap();
         let job = rt.block_on(app.db.claim_next()).unwrap().unwrap();
@@ -881,6 +902,8 @@ mod tests {
         click(&mut ui, (jobs, y), left);
         assert!(!ui.help && ui.tab == 0);
         ui.scroll = 0;
+        (ui.focus, ui.tab) = (Focus::Preview, 1);
+        assert!(text(&draw(&mut ui, 140, 40)).contains("Speaker 1: Bonjour"));
         for (w, h) in [(200, 60), (140, 40), (100, 30), (80, 24), (60, 16), (30, 8)] {
             for focus in [Focus::List, Focus::Preview] {
                 for tab in 0..TABS.len() {

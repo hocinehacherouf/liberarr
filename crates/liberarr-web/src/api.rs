@@ -7,12 +7,14 @@ use axum::http::{StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use liberarr_core::Error;
+use liberarr_core::diarization::{SpeakerTurn, speaker_for};
 use liberarr_core::jobs::{JobInfo, JobStatus, STEPS, busy};
 use liberarr_core::recordings::{RecordingItem, RecordingStatus};
 use liberarr_core::summaries::{Action, MeetingSummary};
 use liberarr_core::transcription::Transcript;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
@@ -143,6 +145,8 @@ pub struct SegmentView {
     start: f64,
     end: f64,
     text: String,
+    /// 0-based; `None` without a diarization or where no speaker covers the segment.
+    speaker: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -154,8 +158,8 @@ pub struct TranscriptView {
     segments: Vec<SegmentView>,
 }
 
-impl From<Transcript> for TranscriptView {
-    fn from(t: Transcript) -> Self {
+impl TranscriptView {
+    fn new(t: Transcript, turns: &[SpeakerTurn]) -> Self {
         Self {
             engine: t.engine,
             language: t.language,
@@ -165,6 +169,7 @@ impl From<Transcript> for TranscriptView {
                 .segments
                 .into_iter()
                 .map(|s| SegmentView {
+                    speaker: speaker_for(s.start, s.end, turns),
                     start: s.start,
                     end: s.end,
                     text: s.text,
@@ -203,10 +208,18 @@ impl From<JobInfo> for JobView {
 }
 
 #[derive(Serialize)]
+pub struct SpeakersView {
+    requested: Option<u32>,
+    /// By 0-based speaker (JSON keys are strings).
+    names: BTreeMap<u32, String>,
+}
+
+#[derive(Serialize)]
 pub struct Detail {
     #[serde(flatten)]
     item: ItemView,
     transcript: Option<TranscriptView>,
+    speakers: SpeakersView,
     summary: Option<MeetingSummary>,
     jobs: Vec<JobView>,
 }
@@ -230,9 +243,19 @@ pub async fn detail<B: Backend>(
         .into_iter()
         .find(|i| i.id == id)
         .ok_or(NOT_FOUND)?;
+    let diarization = s.backend.diarization(id).await?;
+    let turns = diarization.as_ref().map_or(&[][..], |d| &d.turns[..]);
     Ok(Json(Detail {
         item: item.into(),
-        transcript: s.backend.transcript(id).await?.map(Into::into),
+        transcript: s
+            .backend
+            .transcript(id)
+            .await?
+            .map(|t| TranscriptView::new(t, turns)),
+        speakers: SpeakersView {
+            requested: s.backend.requested_speakers(id).await?,
+            names: s.backend.speaker_names(id).await?,
+        },
         summary: s.backend.summary(id).await?,
         jobs: s
             .backend
@@ -275,6 +298,68 @@ pub async fn rerun<B: Backend>(
     if !busy(&s.backend.jobs(id).await?) {
         s.backend.enqueue(id, step).await?;
     }
+    Ok(StatusCode::ACCEPTED)
+}
+
+const MAX_SPEAKER_NAME: usize = 60;
+const MAX_SPEAKERS: u32 = 20;
+
+#[derive(Deserialize)]
+pub struct SpeakerName {
+    name: String,
+}
+
+/// Blank resets the name. The note follows when nothing else is running (an export in the queue
+/// will already read the new name).
+pub async fn rename_speaker<B: Backend>(
+    State(s): State<AppState<B>>,
+    Path((id, n)): Path<(i64, u32)>,
+    Json(body): Json<SpeakerName>,
+) -> Result<StatusCode, ApiError> {
+    let name = body.name.trim();
+    if name.chars().count() > MAX_SPEAKER_NAME || name.chars().any(char::is_control) {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "invalid name"));
+    }
+    s.backend.recording(id).await?.ok_or(NOT_FOUND)?;
+    let known = s
+        .backend
+        .diarization(id)
+        .await?
+        .is_some_and(|d| d.turns.iter().any(|t| t.speaker == n));
+    if !known {
+        return Err(NOT_FOUND);
+    }
+    s.backend
+        .set_speaker_name(id, n, Some(name).filter(|n| !n.is_empty()))
+        .await?;
+    // shortcut: check-then-enqueue is not atomic (same as `rerun`).
+    if !busy(&s.backend.jobs(id).await?) {
+        s.backend.enqueue(id, "export").await?;
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct SpeakerCount {
+    count: Option<u32>,
+}
+
+/// Saves the count (`null` clears it) and diarizes again. Refused while the recording is busy
+/// (the running diarization would not see it) and when diarization is off.
+pub async fn speaker_count<B: Backend>(
+    State(s): State<AppState<B>>,
+    Path(id): Path<i64>,
+    Json(body): Json<SpeakerCount>,
+) -> Result<StatusCode, ApiError> {
+    if body.count.is_some_and(|c| !(1..=MAX_SPEAKERS).contains(&c)) {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "invalid speaker count"));
+    }
+    s.backend.recording(id).await?.ok_or(NOT_FOUND)?;
+    if busy(&s.backend.jobs(id).await?) {
+        return Err(ApiError(StatusCode::CONFLICT, "conflict"));
+    }
+    s.backend.set_speaker_count(id, body.count).await?;
+    s.backend.enqueue(id, "diarize").await?;
     Ok(StatusCode::ACCEPTED)
 }
 

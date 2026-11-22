@@ -6,12 +6,12 @@ Liberarr keeps everything in `LIBERARR_HOME` on your machine. Its database and w
 |---|---|---|
 | Your Plaud token, and your devices' serial numbers (already known to Plaud) to get their signatures; the device keys come back | Plaud's API (`api.plaud.ai` or your region's Plaud API host) | `link` only. |
 | The audio of each recording, and your `LIBERARR_TRANSCRIBE_VOCABULARY` list when set | Your transcription provider | Transcription step, only with a cloud provider. Never with `local`. |
-| Nothing about your recordings: a plain download of the two model files (Whisper, 575 MB, and the voice-activity model, 0.9 MB) | Hugging Face (`huggingface.co`) | Once, at the first local transcription, and again if `<LIBERARR_HOME>/models` is deleted. |
+| Nothing about your recordings: a plain download of the model files (Whisper, 575 MB, the voice-activity model, 0.9 MB, and the two speaker models, 46 MB) | Hugging Face (`huggingface.co`) | Once, at the first local transcription and the first diarization, and again if `<LIBERARR_HOME>/models` is deleted. |
 | The transcript of each recording | Your summary provider, or the vendor of the subscription CLI you chose | Summary step, only when a summary provider other than `none` is set. |
 | Your API keys | The provider each key belongs to | Each request, and the key test in `init`. |
 | The summaries, actions and transcripts your AI agent reads | The AI provider of that agent | Only if you connect an agent to `liberarr mcp` ([AI agents](agents.md)). |
 
-Nothing else is sent: no telemetry, no analytics. `pull` talks to the device over Bluetooth only.
+Speaker labels are computed on your machine, whichever transcription provider you use: the audio and the speaker data never leave it, and no voiceprint is stored ([Speaker labels](speakers.md)). Nothing else is sent: no telemetry, no analytics. `pull` talks to the device over Bluetooth only.
 
 ## AI providers
 

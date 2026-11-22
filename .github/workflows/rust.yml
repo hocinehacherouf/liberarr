@@ -18,9 +18,12 @@ jobs:
           # A new host fails the job: the run insights (link in this step's log) show the blocked call.
           # rustup (also inside cargo-deny), cargo, apt-get update (its hooks call esm/motd), cargo-deny's
           # advisory database (github.com). ec2 mirror: the apt mirror of the runner's AWS region.
+          # release-assets.githubusercontent.com: where GitHub redirects release downloads (the sherpa-onnx
+          # archive, fetched by one step below; no build script may download anything).
           egress-policy: block
           allowed-endpoints: >
             github.com:443
+            release-assets.githubusercontent.com:443
             static.rust-lang.org:443
             index.crates.io:443
             static.crates.io:443
@@ -42,6 +45,11 @@ jobs:
         run: rustup show
       - name: Install the BlueZ client headers (btleplug on Linux), cmake (libopus, whisper.cpp) and libclang (whisper-rs bindings)
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config cmake libclang-dev
+      # The build script of sherpa-onnx-sys would download this archive unchecked. Fetch and verify it here
+      # (it exports SHERPA_ONNX_ARCHIVE_DIR). Never cache target/ in a workflow: that build script reuses
+      # target/sherpa-onnx-prebuilt/ without any check.
+      - name: Fetch the sherpa-onnx archive (checked against packaging/sherpa-onnx.sha256)
+        run: packaging/fetch-sherpa-onnx.sh linux-x64 "$RUNNER_TEMP/sherpa"
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked

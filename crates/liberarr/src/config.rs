@@ -45,6 +45,9 @@ pub struct Config {
     pub claude_oauth_token: Option<String>,
     /// Set the `Secure` cookie flag (serving behind HTTPS).
     pub cookie_secure: bool,
+    /// `LIBERARR_DIARIZE` (`on` by default): label who speaks. Off: the diarize step passes without
+    /// doing anything.
+    pub diarize: bool,
 }
 
 /// `LIBERARR_HOME`, default `~/.liberarr`.
@@ -244,6 +247,12 @@ fn load_from(
         Some(v) => Language::parse(v.trim())
             .ok_or_else(|| t!("config.content_language_unknown").into_owned())?,
     };
+    let var = "LIBERARR_DIARIZE";
+    let diarize = match get(var).as_deref().map(str::trim) {
+        None | Some("" | "on") => true,
+        Some("off") => false,
+        Some(_) => return Err(t!("config.diarize_invalid", var = var).into_owned()),
+    };
     Ok(Config {
         home: home.to_path_buf(),
         secret_key: secret("LIBERARR_SECRET_KEY")?,
@@ -271,6 +280,7 @@ fn load_from(
             .filter(|v| !is_unset(v))
             .map(|v| v.trim().to_string()),
         cookie_secure: get("LIBERARR_COOKIE_SECURE").is_some_and(|v| v.trim() == "true"),
+        diarize,
     })
 }
 
@@ -452,6 +462,20 @@ LIBERARR_LLM_MODEL=gpt
             .err()
             .unwrap();
         assert!(msg.contains("LIBERARR_LLM_PROVIDER"), "{msg}");
+    }
+
+    #[test]
+    fn diarization_is_on_unless_turned_off() {
+        let diarize = |extra: &str| load_text(&format!("{VALID}{extra}")).map(|c| c.diarize);
+        assert_eq!(diarize(""), Ok(true));
+        assert_eq!(diarize("LIBERARR_DIARIZE=\n"), Ok(true));
+        assert_eq!(diarize("LIBERARR_DIARIZE=on\n"), Ok(true));
+        assert_eq!(diarize("LIBERARR_DIARIZE=off\n"), Ok(false));
+        let msg = diarize("LIBERARR_DIARIZE=maybe\n").unwrap_err();
+        assert!(
+            msg.contains("LIBERARR_DIARIZE") && !msg.contains("maybe"),
+            "{msg}"
+        );
     }
 
     #[test]
