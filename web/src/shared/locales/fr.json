@@ -19,7 +19,7 @@
   },
   "recordings": {
     "title": "Enregistrements",
-    "back": "← Enregistrements",
+    "back": "Enregistrements",
     "untitled": "Enregistrement {{id}}",
     "empty": "Aucun enregistrement pour le moment.",
     "searchByTitle": "Rechercher des enregistrements par titre",
@@ -52,10 +52,17 @@
     },
     "steps": {
       "transcribe": "transcription",
-"diarize": "locuteurs",
+      "diarize": "locuteurs",
       "summarize": "résumé",
       "export": "export"
     }
+  },
+  "player": {
+    "label": "Lecteur audio",
+    "play": "Lecture",
+    "pause": "Pause",
+    "position": "Position de lecture",
+    "speed": "Vitesse"
   },
   "speakers": {
     "label": "Locuteur {{n}}",

@@ -7,8 +7,12 @@ function Slider({
   value,
   min = 0,
   max = 100,
+  // override: Base UI names the thumb input (not the root), so the accessible name and value text are forwarded to it
+  getAriaLabel,
+  getAriaValueText,
   ...props
-}: SliderPrimitive.Root.Props) {
+}: SliderPrimitive.Root.Props &
+  Pick<SliderPrimitive.Thumb.Props, "getAriaLabel" | "getAriaValueText">) {
   const _values = Array.isArray(value)
     ? value
     : Array.isArray(defaultValue)
@@ -39,6 +43,8 @@ function Slider({
         {Array.from({ length: _values.length }, (_, index) => (
           <SliderPrimitive.Thumb
             data-slot="slider-thumb"
+            getAriaLabel={getAriaLabel}
+            getAriaValueText={getAriaValueText}
             key={index}
             className="block h-4 w-6 shrink-0 rounded-full bg-white shadow-md ring-1 ring-black/10 transition-[color,box-shadow,background-color] select-none not-dark:bg-clip-padding hover:ring-4 hover:ring-ring/30 focus-visible:ring-4 focus-visible:ring-ring/30 focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50 data-vertical:h-6 data-vertical:w-4"
           />
