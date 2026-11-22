@@ -14,6 +14,8 @@ pub struct NoteLabels {
     pub actions: &'static str,
     pub no_actions: &'static str,
     pub transcript: &'static str,
+    /// Default speaker label: "Speaker 1".
+    pub speaker: &'static str,
 }
 
 impl Language {
@@ -42,6 +44,7 @@ impl Language {
                 actions: "Actions",
                 no_actions: "Aucune action.",
                 transcript: "Transcription",
+                speaker: "Locuteur",
             },
             Language::En => NoteLabels {
                 summary: "Summary",
@@ -49,6 +52,7 @@ impl Language {
                 actions: "Actions",
                 no_actions: "No actions.",
                 transcript: "Transcript",
+                speaker: "Speaker",
             },
         }
     }

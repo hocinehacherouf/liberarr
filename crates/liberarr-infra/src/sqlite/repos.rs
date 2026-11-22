@@ -116,25 +116,35 @@ impl RecordingRepo for Db {
         Ok(())
     }
 
-    /// Latest job decides the status; the summary title wins over the recording title.
+    /// A queued or running job makes it processing; else a step whose latest job failed makes it
+    /// failed (so a failed optional step still shows after the jobs that follow it). The summary
+    /// title wins over the recording title.
     /// "No speech" is derived from the stored transcript, not stored on its own.
     async fn list_items(&self) -> Result<Vec<RecordingItem>> {
         self.run(|c| {
             let mut stmt = c.prepare(
                 "SELECT r.id, COALESCE(s.title, r.title), r.source, r.duration_s, r.created_at,
-                        j.status, CASE WHEN j.status = 'failed' THEN j.step END,
+                        EXISTS (SELECT 1 FROM jobs WHERE recording_id = r.id
+                                AND status IN ('queued', 'running')),
+                        (SELECT f.step FROM jobs f
+                         WHERE f.recording_id = r.id AND f.status = 'failed'
+                           AND f.id = (SELECT MAX(id) FROM jobs
+                                       WHERE recording_id = r.id AND step = f.step)
+                         ORDER BY f.id DESC LIMIT 1),
                         COALESCE(trim(t.text, char(32, 9, 10, 13)) = '', 0)
                  FROM recordings r
                  LEFT JOIN summaries s ON s.recording_id = r.id
                  LEFT JOIN transcripts t ON t.recording_id = r.id
-                 LEFT JOIN jobs j ON j.id = (SELECT MAX(id) FROM jobs WHERE recording_id = r.id)
                  ORDER BY r.created_at DESC, r.id DESC",
             )?;
             stmt.query_map([], |r| {
-                let status = match r.get::<_, Option<String>>(5)?.as_deref() {
-                    Some("queued" | "running") => RecordingStatus::Processing,
-                    Some("failed") => RecordingStatus::Failed,
-                    _ => RecordingStatus::Done,
+                let failed_step: Option<String> = r.get(6)?;
+                let status = if r.get(5)? {
+                    RecordingStatus::Processing
+                } else if failed_step.is_some() {
+                    RecordingStatus::Failed
+                } else {
+                    RecordingStatus::Done
                 };
                 Ok(RecordingItem {
                     id: r.get(0)?,
@@ -142,7 +152,7 @@ impl RecordingRepo for Db {
                     source: parse_source(2, &r.get::<_, String>(2)?)?,
                     duration_s: r.get(3)?,
                     created_at: parse_ts(4, &r.get::<_, String>(4)?)?,
-                    failed_step: r.get(6)?,
+                    failed_step: failed_step.filter(|_| status == RecordingStatus::Failed),
                     no_speech: status == RecordingStatus::Done && r.get(7)?,
                     status,
                 })

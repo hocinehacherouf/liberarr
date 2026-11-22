@@ -1,10 +1,12 @@
 //! Exports context: one-way Obsidian note rendering and marker-bounded upsert.
+use crate::diarization::{Diarization, DiarizationRepo, speaker_for, speaker_label};
 use crate::lang::Language;
 use crate::recordings::{Recording, RecordingRepo};
 use crate::summaries::{MeetingSummary, SummaryRepo};
 use crate::transcription::{Transcript, TranscriptRepo, timestamp};
 use crate::{Error, Result};
 use jiff::tz::TimeZone;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Liberarr owns only the text between these markers; the owner's edits around them are never touched.
@@ -53,12 +55,27 @@ pub fn frontmatter(r: &Recording, tz: &TimeZone) -> String {
 }
 
 /// Without a summary only the transcript section is written, so a note exists before (or without) an AI run.
-pub fn render_block(t: &Transcript, s: Option<&MeetingSummary>, lang: Language) -> String {
+/// With a diarization each segment that has a speaker starts with `**name**`; the segments are matched
+/// to the turns here, so a new transcript is labelled by the turns already stored.
+pub fn render_block(
+    t: &Transcript,
+    s: Option<&MeetingSummary>,
+    lang: Language,
+    speakers: Option<(&Diarization, &BTreeMap<u32, String>)>,
+) -> String {
     let l = lang.note_labels();
     let transcript: Vec<String> = if t.has_timestamps {
         t.segments
             .iter()
-            .map(|g| format!("[{}] {}", timestamp(g.start), g.text.trim()))
+            .map(|g| {
+                let who = speakers
+                    .and_then(|(d, names)| {
+                        let n = speaker_for(g.start, g.end, &d.turns)?;
+                        Some(format!("**{}** ", speaker_label(n, names, l.speaker)))
+                    })
+                    .unwrap_or_default();
+                format!("{who}[{}] {}", timestamp(g.start), g.text.trim())
+            })
             .collect()
     } else {
         vec![t.text.clone()]
@@ -141,18 +158,19 @@ pub trait NoteStore {
     fn write_atomic(&self, path: &Path, text: &str) -> Result<()>;
 }
 
-pub struct ExportToObsidian<'a, R, T, S, N> {
+pub struct ExportToObsidian<'a, R, T, S, D, N> {
     pub recordings: &'a R,
     pub transcripts: &'a T,
     pub summaries: &'a S,
+    pub speakers: &'a D,
     pub notes: &'a N,
     pub vault: PathBuf,
     pub tz: TimeZone,
     pub lang: Language,
 }
 
-impl<R: RecordingRepo, T: TranscriptRepo, S: SummaryRepo, N: NoteStore>
-    ExportToObsidian<'_, R, T, S, N>
+impl<R: RecordingRepo, T: TranscriptRepo, S: SummaryRepo, D: DiarizationRepo, N: NoteStore>
+    ExportToObsidian<'_, R, T, S, D, N>
 {
     /// Writes the note and returns its path. The file name is fixed on the first export (` (<id>)`
     /// is added when the name is taken), so later exports rewrite the same note. Only the name is
@@ -173,6 +191,10 @@ impl<R: RecordingRepo, T: TranscriptRepo, S: SummaryRepo, N: NoteStore>
             return Ok(None);
         }
         let s = self.summaries.get(recording_id).await?;
+        let diarization = match self.speakers.get(recording_id).await? {
+            Some(d) => Some((d, self.speakers.names(recording_id).await?)),
+            None => None,
+        };
         // `join` keeps a legacy absolute value working.
         let path = match rec.export_path.clone() {
             Some(name) => self.vault.join(name),
@@ -204,7 +226,12 @@ impl<R: RecordingRepo, T: TranscriptRepo, S: SummaryRepo, N: NoteStore>
         };
         let text = upsert_block(
             self.notes.read(&path)?.as_deref(),
-            &render_block(&t, s.as_ref(), self.lang),
+            &render_block(
+                &t,
+                s.as_ref(),
+                self.lang,
+                diarization.as_ref().map(|(d, names)| (d, names)),
+            ),
             &frontmatter(&rec, &self.tz),
         );
         self.notes.write_atomic(&path, &text)?;
@@ -215,7 +242,10 @@ impl<R: RecordingRepo, T: TranscriptRepo, S: SummaryRepo, N: NoteStore>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fakes::{MemNotes, MemRecordings, MemSummaries, MemTranscripts, block_on};
+    use crate::diarization::{DiarizationRepo, SpeakerTurn};
+    use crate::fakes::{
+        MemDiarizations, MemNotes, MemRecordings, MemSummaries, MemTranscripts, block_on,
+    };
     use crate::recordings::{NewRecording, RecordingRepo, Source};
     use crate::summaries::{MeetingSummary, SummaryRepo};
     use crate::transcription::{Segment, Transcript, TranscriptRepo};
@@ -277,7 +307,7 @@ mod tests {
     fn markers_in_generated_text_do_not_split_the_block() {
         let mut s = summary();
         s.summary_md = format!("a {END} b {START} c %% liberarr:st{END}art %%");
-        let block = render_block(&transcript(), Some(&s), Language::En);
+        let block = render_block(&transcript(), Some(&s), Language::En, None);
         assert_eq!(
             (block.matches(START).count(), block.matches(END).count()),
             (1, 1)
@@ -374,6 +404,7 @@ mod tests {
             recordings: &recs,
             transcripts: &transcripts,
             summaries: &summaries,
+            speakers: &MemDiarizations::default(),
             notes: &notes,
             vault: "/vault".into(),
             tz: TimeZone::UTC,
@@ -414,6 +445,7 @@ mod tests {
             recordings: &recs,
             transcripts: &transcripts,
             summaries: &summaries,
+            speakers: &MemDiarizations::default(),
             notes: &notes,
             vault: "/vault".into(),
             tz: TimeZone::UTC,
@@ -438,6 +470,7 @@ mod tests {
             recordings: &recs,
             transcripts: &transcripts,
             summaries: &summaries,
+            speakers: &MemDiarizations::default(),
             notes: &notes,
             vault: "/vault".into(),
             tz: TimeZone::UTC,
@@ -484,6 +517,7 @@ mod tests {
             recordings: &recs,
             transcripts: &transcripts,
             summaries: &summaries,
+            speakers: &MemDiarizations::default(),
             notes: &notes,
             vault: "/vault".into(),
             tz: TimeZone::UTC,
@@ -493,5 +527,85 @@ mod tests {
         assert_eq!(block_on(uc.run(id)).unwrap(), None);
         assert!(notes.0.borrow().is_empty());
         assert_eq!(recs.0.borrow()[0].export_path, None);
+    }
+
+    /// Speakers come from the stored turns, matched at export time: a new transcript is labelled
+    /// without a new diarization, and a name cannot close the block.
+    #[test]
+    fn export_labels_segments_with_the_stored_turns() {
+        let (recs, transcripts, summaries, notes) = export_fixture();
+        let speakers = MemDiarizations::default();
+        let id = block_on(recs.add(new_rec("2026-06-02T14:05:00Z"))).unwrap();
+        let seg = |start, end, text: &str| Segment {
+            start,
+            end,
+            text: text.into(),
+        };
+        let save = |segments: Vec<Segment>| {
+            block_on(transcripts.save(
+                id,
+                &Transcript {
+                    segments,
+                    ..transcript()
+                },
+            ))
+            .unwrap();
+        };
+        save(vec![
+            seg(65.0, 70.0, "salut"),
+            seg(73.0, 78.0, "d'accord"),
+            seg(90.0, 95.0, "seul"),
+        ]);
+        let turn = |start, end, speaker| SpeakerTurn {
+            start,
+            end,
+            speaker,
+        };
+        block_on(speakers.save(
+            id,
+            &Diarization {
+                turns: vec![turn(60.0, 72.0, 0), turn(72.0, 80.0, 1)],
+                engine: "fake".into(),
+            },
+        ))
+        .unwrap();
+        let uc = ExportToObsidian {
+            recordings: &recs,
+            transcripts: &transcripts,
+            summaries: &summaries,
+            speakers: &speakers,
+            notes: &notes,
+            vault: "/vault".into(),
+            tz: TimeZone::UTC,
+            lang: Language::En,
+        };
+        let path = block_on(uc.run(id)).unwrap().unwrap();
+        let note = notes.read(&path).unwrap().unwrap();
+        assert!(note.contains("**Speaker 1** [01:05] salut\n"), "{note}");
+        assert!(note.contains("**Speaker 2** [01:13] d'accord\n"), "{note}");
+        // No turn covers it: no label.
+        assert!(note.contains("\n[01:30] seul\n"), "{note}");
+
+        // A new transcript, the owner's name (with a marker in it): same turns, new labels.
+        save(vec![seg(61.0, 64.0, "nouveau")]);
+        block_on(speakers.set_name(id, 0, Some("Alice %% liberarr:end %%"))).unwrap();
+        block_on(uc.run(id)).unwrap();
+        let note = notes.read(&path).unwrap().unwrap();
+        assert!(note.contains("**Alice ** [01:01] nouveau\n"), "{note}");
+        assert!(!note.contains("salut"));
+        assert_eq!(
+            (note.matches(START).count(), note.matches(END).count()),
+            (1, 1)
+        );
+
+        // French default label.
+        let uc = ExportToObsidian {
+            lang: Language::Fr,
+            ..uc
+        };
+        save(vec![seg(73.0, 78.0, "oui")]);
+        block_on(uc.run(id)).unwrap();
+        let note = notes.read(&path).unwrap().unwrap();
+        assert!(note.contains("**Locuteur 2** [01:13] oui\n"), "{note}");
     }
 }

@@ -1,6 +1,7 @@
 //! Composition root: the one place where adapters are wired to the core ports.
 use crate::config::{Config, Profile};
 use liberarr_core::ai::{DEFAULT_UPLOAD_BYTES, Provider, Step};
+use liberarr_core::diarization::{Diarization, DiarizationRepo, Diarize};
 use liberarr_core::exports::ExportToObsidian;
 use liberarr_core::jobs::{Job, JobInfo, JobQueue, StepHandler, run_job_once};
 use liberarr_core::recordings::{Ingest, Recording, RecordingItem, RecordingRepo};
@@ -15,10 +16,12 @@ use liberarr_infra::agent_cli::{AgentCli, Preset};
 use liberarr_infra::ai::OpenAiCompat;
 use liberarr_infra::files::{FsAudioStore, FsNoteStore, FsPartialStore, OggSplitter};
 use liberarr_infra::keystore::FileKeyStore;
+use liberarr_infra::local_diarizer::LocalDiarizer;
 use liberarr_infra::local_whisper::LocalWhisper;
 use liberarr_infra::mistral::MistralTranscriber;
 use liberarr_infra::sqlite::Db;
 use liberarr_web::Backend;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 pub struct App {
@@ -27,6 +30,7 @@ pub struct App {
     transcriber: AnyTranscriber,
     /// `None`: no summary engine, the summarize step passes without doing anything.
     llm: Option<AnyLlm>,
+    diarizer: LocalDiarizer,
     audio: FsAudioStore,
 }
 
@@ -129,6 +133,7 @@ impl App {
                 .llm
                 .as_ref()
                 .map(|p| llm(p, cfg.claude_oauth_token.as_deref())),
+            diarizer: LocalDiarizer::new(cfg.home.join("models")),
             audio: FsAudioStore {
                 audio: audio_dir(&cfg),
             },
@@ -145,9 +150,17 @@ impl App {
         }
     }
 
-    /// The local Whisper model is not on disk yet: the first transcription downloads it.
-    pub fn model_download_pending(&self) -> bool {
-        matches!(&self.transcriber, AnyTranscriber::Local(t) if t.models_missing())
+    /// One line when the first run will download a local model (Whisper, the speaker models, or both).
+    pub fn model_download_notice(&self) -> Option<String> {
+        let whisper = matches!(&self.transcriber, AnyTranscriber::Local(t) if t.models_missing());
+        let speakers = self.cfg.diarize && self.diarizer.models_missing();
+        let key = match (whisper, speakers) {
+            (true, true) => "models.download_notice",
+            (true, false) => "transcribe.model_download_notice",
+            (false, true) => "diarize.model_download_notice",
+            (false, false) => return None,
+        };
+        Some(rust_i18n::t!(key).into_owned())
     }
 
     /// Runs queued jobs until the queue is empty. `Db::reset_stale` must have run once before.
@@ -228,12 +241,22 @@ impl StepHandler for App {
                 // No speech: no summary, so the chain stops before the export.
                 .map(|s| s.is_some()),
             },
-            // The diarizer arrives with its adapter; until then the step is a no-op success.
-            "diarize" => Ok(true),
+            // Off: nothing to run, the chain goes on.
+            "diarize" if !self.cfg.diarize => Ok(true),
+            "diarize" => Diarize {
+                recordings: &self.db,
+                transcripts: &self.db,
+                diarizer: &self.diarizer,
+                store: &self.db,
+            }
+            .run(id)
+            .await
+            .map(|()| true),
             "export" => ExportToObsidian {
                 recordings: &self.db,
                 transcripts: &self.db,
                 summaries: &self.db,
+                speakers: &self.db,
                 notes: &FsNoteStore,
                 vault: self.cfg.obsidian.clone(),
                 tz: jiff::tz::TimeZone::system(),
@@ -267,7 +290,28 @@ impl Backend for App {
         if step == "summarize" && self.llm.is_none() {
             return Err(Error::Conflict("summary engine".into()));
         }
+        if step == "diarize" && !self.cfg.diarize {
+            return Err(Error::Conflict("diarization".into()));
+        }
         self.db.enqueue(id, step).await
+    }
+    async fn diarization(&self, id: i64) -> Result<Option<Diarization>> {
+        DiarizationRepo::get(&self.db, id).await
+    }
+    async fn speaker_names(&self, id: i64) -> Result<BTreeMap<u32, String>> {
+        self.db.names(id).await
+    }
+    async fn requested_speakers(&self, id: i64) -> Result<Option<u32>> {
+        self.db.requested_speakers(id).await
+    }
+    async fn set_speaker_name(&self, id: i64, speaker: u32, name: Option<&str>) -> Result<()> {
+        self.db.set_name(id, speaker, name).await
+    }
+    async fn set_speaker_count(&self, id: i64, count: Option<u32>) -> Result<()> {
+        if !self.cfg.diarize {
+            return Err(Error::Conflict("diarization".into()));
+        }
+        self.db.set_requested_speakers(id, count).await
     }
     async fn toggle_action(
         &self,
@@ -303,16 +347,13 @@ mod tests {
         }
     }
 
-    /// Without an engine the summarize job completes, the note is still written for a transcript
-    /// with speech, and the API refuses to queue a summarize that could not run.
-    #[test]
-    fn no_engine_skips_summarize_and_refuses_rerun() {
+    /// A home of its own (tests run in parallel), a runtime and an app without a summary engine.
+    fn open(name: &str, diarize: bool) -> (PathBuf, tokio::runtime::Runtime, App) {
         let home = std::env::temp_dir().join(format!(
-            "liberarr-noengine-{}-{}",
+            "liberarr-{name}-{}-{}",
             std::process::id(),
             jiff::Timestamp::now().as_nanosecond()
         ));
-        let rt = tokio::runtime::Runtime::new().unwrap();
         let app = App::open(Config {
             home: home.clone(),
             secret_key: "k".repeat(32),
@@ -326,40 +367,52 @@ mod tests {
             content_language_set: false,
             cookie_secure: false,
             claude_oauth_token: None,
+            diarize,
         })
         .unwrap();
-        let recording = |title: &str, text: &str| {
-            let id = rt
-                .block_on(app.db.add(NewRecording {
-                    title: Some(title.into()),
-                    source: Source::File,
-                    source_ref: title.into(),
-                    audio_path: "a.ogg".into(),
-                    duration_s: Some(10.0),
-                    created_at: "2026-03-02T10:00:00Z".parse().unwrap(),
-                }))
-                .unwrap();
-            rt.block_on(TranscriptRepo::save(
-                &app.db,
-                id,
-                &Transcript {
-                    engine: "e".into(),
-                    language: None,
-                    text: text.into(),
-                    segments: vec![Segment {
-                        start: 0.0,
-                        end: 2.0,
-                        text: text.into(),
-                    }],
-                    has_timestamps: true,
-                },
-            ))
+        (home, tokio::runtime::Runtime::new().unwrap(), app)
+    }
+
+    /// A recording with a one-segment transcript and a queued summarize job; its audio is missing.
+    fn recording(rt: &tokio::runtime::Runtime, app: &App, title: &str, text: &str) -> i64 {
+        let id = rt
+            .block_on(app.db.add(NewRecording {
+                title: Some(title.into()),
+                source: Source::File,
+                source_ref: title.into(),
+                audio_path: "a.ogg".into(),
+                duration_s: Some(10.0),
+                created_at: "2026-03-02T10:00:00Z".parse().unwrap(),
+            }))
             .unwrap();
-            rt.block_on(app.db.enqueue(id, "summarize")).unwrap();
-            id
-        };
-        let spoken = recording("Budget review", "Bonjour, let's start.");
-        let silent = recording("Silence", "  ");
+        rt.block_on(TranscriptRepo::save(
+            &app.db,
+            id,
+            &Transcript {
+                engine: "e".into(),
+                language: None,
+                text: text.into(),
+                segments: vec![Segment {
+                    start: 0.0,
+                    end: 2.0,
+                    text: text.into(),
+                }],
+                has_timestamps: true,
+            },
+        ))
+        .unwrap();
+        rt.block_on(app.db.enqueue(id, "summarize")).unwrap();
+        id
+    }
+
+    /// Without an engine the summarize job completes, the note is still written for a transcript
+    /// with speech, and the API refuses to queue a summarize that could not run. With diarization
+    /// off the diarize job passes too, and the API refuses to queue it or to set a speaker count.
+    #[test]
+    fn no_engine_skips_summarize_and_refuses_rerun() {
+        let (home, rt, app) = open("noengine", false);
+        let spoken = recording(&rt, &app, "Budget review", "Bonjour, let's start.");
+        let silent = recording(&rt, &app, "Silence", "  ");
         rt.block_on(app.drain()).unwrap();
 
         for id in [spoken, silent] {
@@ -389,6 +442,38 @@ mod tests {
             rt.block_on(Backend::enqueue(&app, spoken, "export"))
                 .is_ok()
         );
+        let err = rt.block_on(Backend::enqueue(&app, spoken, "diarize"));
+        assert!(matches!(err, Err(Error::Conflict(_))), "{err:?}");
+        let err = rt.block_on(Backend::set_speaker_count(&app, spoken, Some(2)));
+        assert!(matches!(err, Err(Error::Conflict(_))), "{err:?}");
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    /// A diarization that fails (here: the audio is missing) is recorded on its job and shows in the
+    /// recording's status, but the export still writes the note.
+    #[test]
+    fn failed_diarization_does_not_stop_the_note() {
+        let (home, rt, app) = open("diarfail", true);
+        let id = recording(&rt, &app, "Budget review", "Bonjour, let's start.");
+        rt.block_on(app.drain()).unwrap();
+
+        let jobs = rt.block_on(app.db.list_for(id)).unwrap();
+        let steps: Vec<_> = jobs.iter().map(|j| (j.step.as_str(), j.status)).collect();
+        assert_eq!(
+            steps,
+            [
+                ("summarize", JobStatus::Done),
+                ("diarize", JobStatus::Failed),
+                ("export", JobStatus::Done)
+            ]
+        );
+        let item = &rt.block_on(app.db.list_items()).unwrap()[0];
+        assert_eq!(item.failed_step.as_deref(), Some("diarize"));
+        let note = rt
+            .block_on(RecordingRepo::get(&app.db, id))
+            .unwrap()
+            .unwrap();
+        assert!(home.join("notes").join(note.export_path.unwrap()).is_file());
         std::fs::remove_dir_all(&home).unwrap();
     }
 

@@ -57,14 +57,21 @@ fn renumber(segments: &[(f32, f32, i32)]) -> Vec<SpeakerTurn> {
 
 impl Diarizer for LocalDiarizer {
     async fn diarize(&self, audio_path: &Path, speakers: Option<u32>) -> Result<Vec<SpeakerTurn>> {
-        let audio = std::fs::read(audio_path).map_err(|_| failed("cannot read the audio"))?;
         // Cheap check first: a bad file must not trigger the model download. No CPU check: onnxruntime
-        // picks its kernels at run time, so this works where whisper.cpp does not.
-        if opus_packets(&audio).is_err() {
-            return Err(Error::Unsupported(
-                "local diarization reads Ogg Opus only".into(),
-            ));
-        }
+        // picks its kernels at run time, so this works where whisper.cpp does not. Off the async
+        // threads: the file can be large.
+        let path = audio_path.to_path_buf();
+        let audio = tokio::task::spawn_blocking(move || {
+            let audio = std::fs::read(path).map_err(|_| failed("cannot read the audio"))?;
+            if opus_packets(&audio).is_err() {
+                return Err(Error::Unsupported(
+                    "local diarization reads Ogg Opus only".into(),
+                ));
+            }
+            Ok(audio)
+        })
+        .await
+        .map_err(|_| failed("worker stopped"))??;
         let segmentation = self.models.ensure(&PYANNOTE_SEGMENTATION).await?;
         let embedding = self.models.ensure(&TITANET_SMALL).await?;
         tokio::task::spawn_blocking(move || run(&audio, &segmentation, &embedding, speakers))

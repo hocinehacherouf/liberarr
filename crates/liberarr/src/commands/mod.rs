@@ -12,7 +12,7 @@ pub mod serve;
 pub mod status;
 
 use crate::container::App;
-use liberarr_core::jobs::{JobQueue, JobStatus};
+use liberarr_core::jobs::{JobQueue, JobStatus, OPTIONAL_STEPS, latest_by_step};
 use liberarr_core::transcription::TranscriptRepo;
 use rust_i18n::t;
 use std::io::{BufRead, IsTerminal, Write};
@@ -32,11 +32,11 @@ pub fn note_content_language(cfg: &crate::config::Config) {
     }
 }
 
-/// One line before a worker starts (`serve`, `process`, `pull`) when the first transcription will download the Whisper model.
+/// One line before a worker starts (`serve`, `process`, `pull`) when the first run will download a local model.
 /// Not for the TUI, which shares the worker and owns the screen.
 pub fn note_model_download(app: &App) {
-    if app.model_download_pending() {
-        eprintln!("{}", t!("transcribe.model_download_notice"));
+    if let Some(notice) = app.model_download_notice() {
+        eprintln!("{notice}");
     }
 }
 
@@ -60,7 +60,7 @@ pub fn ask(prompt: &str, hidden: bool) -> std::io::Result<String> {
 }
 
 /// Runs the queue to the end (also work left by an earlier `pull --no-process`), then prints
-/// where each of `ids` stands. `false` if one failed.
+/// where each of `ids` stands. `false` if a required step failed; a failed optional step is a warning.
 pub async fn process_and_report(app: &App, ids: &[i64]) -> Result<bool, liberarr_core::Error> {
     note_model_download(app);
     eprintln!("{}", t!("process.running"));
@@ -70,19 +70,33 @@ pub async fn process_and_report(app: &App, ids: &[i64]) -> Result<bool, liberarr
     }
     let mut ok = true;
     for &id in ids {
-        match app.db.list_for(id).await?.last() {
-            Some(j) if j.status == JobStatus::Failed => {
-                ok = false;
-                println!(
-                    "{}",
-                    t!(
-                        "process.failed_step",
-                        id = id,
-                        step = j.step,
-                        error = j.error.as_deref().unwrap_or("?")
-                    )
-                );
-            }
+        let jobs = app.db.list_for(id).await?;
+        // The latest job of each step: a failed optional step shows although the export ran after it.
+        let mut required_failed = false;
+        for j in latest_by_step(&jobs)
+            .into_iter()
+            .filter(|j| j.status == JobStatus::Failed)
+        {
+            let optional = OPTIONAL_STEPS.contains(&j.step.as_str());
+            required_failed |= !optional;
+            let key = if optional {
+                "process.optional_failed"
+            } else {
+                "process.failed_step"
+            };
+            println!(
+                "{}",
+                t!(
+                    key,
+                    id = id,
+                    step = j.step,
+                    error = j.error.as_deref().unwrap_or("?")
+                )
+            );
+        }
+        ok &= !required_failed;
+        match jobs.last() {
+            _ if required_failed => {}
             Some(j) if j.status == JobStatus::Done => {
                 let silent = TranscriptRepo::get(&app.db, id)
                     .await?

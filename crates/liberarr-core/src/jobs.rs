@@ -57,6 +57,16 @@ pub fn busy(jobs: &[JobInfo]) -> bool {
         .any(|j| matches!(j.status, JobStatus::Queued | JobStatus::Running))
 }
 
+/// The latest job of each step, in queue order: where each step stands now. `jobs` is in queue
+/// order, as `JobQueue::list_for` returns it.
+pub fn latest_by_step(jobs: &[JobInfo]) -> Vec<&JobInfo> {
+    jobs.iter()
+        .enumerate()
+        .filter(|(i, j)| !jobs[i + 1..].iter().any(|l| l.step == j.step))
+        .map(|(_, j)| j)
+        .collect()
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Rerun {
     Queued(String),
@@ -157,6 +167,26 @@ mod tests {
         assert_eq!(rows[1].1, JobStatus::Failed);
         assert_eq!(rows[1].2.as_deref(), Some("provider: boom"));
         assert!(!block_on(run_job_once(&q, &h)).unwrap());
+    }
+
+    #[test]
+    fn latest_by_step_keeps_the_newest_job_of_each_step() {
+        let job = |id, step: &str, status| JobInfo {
+            id,
+            step: step.into(),
+            status,
+            attempts: 1,
+            error: None,
+            updated_at: jiff::Timestamp::UNIX_EPOCH,
+        };
+        let jobs = [
+            job(1, "diarize", JobStatus::Failed),
+            job(2, "export", JobStatus::Done),
+            job(3, "diarize", JobStatus::Done),
+            job(4, "summarize", JobStatus::Failed),
+        ];
+        let latest: Vec<_> = latest_by_step(&jobs).iter().map(|j| j.id).collect();
+        assert_eq!(latest, [2, 3, 4]);
     }
 
     #[test]

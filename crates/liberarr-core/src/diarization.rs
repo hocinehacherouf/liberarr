@@ -65,6 +65,14 @@ pub fn speaker_for(start: f64, end: f64, turns: &[SpeakerTurn]) -> Option<u32> {
         .map(|(s, _)| s)
 }
 
+/// The owner's name for the speaker, else "{default} {n + 1}" (`default` is the translated word).
+pub fn speaker_label(speaker: u32, names: &BTreeMap<u32, String>, default: &str) -> String {
+    names
+        .get(&speaker)
+        .cloned()
+        .unwrap_or_else(|| format!("{default} {}", speaker + 1))
+}
+
 pub struct Diarize<'a, R, T, D, S> {
     pub recordings: &'a R,
     pub transcripts: &'a T,

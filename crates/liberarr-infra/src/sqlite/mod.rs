@@ -251,6 +251,7 @@ mod tests {
                     recordings: &db,
                     transcripts: &db,
                     summaries: &db,
+                    speakers: &db,
                     notes: &FsNoteStore,
                     vault,
                     tz: jiff::tz::TimeZone::UTC,
@@ -432,6 +433,39 @@ mod tests {
         let item = &db.list_items().await.unwrap()[0];
         assert_eq!(item.status, RecordingStatus::Failed);
         assert_eq!(item.failed_step.as_deref(), Some("transcribe"));
+    }
+
+    /// A failed optional step stays visible after the jobs that follow it, until the step itself
+    /// succeeds again.
+    #[tokio::test]
+    async fn status_is_the_latest_job_of_each_step() {
+        let t = TempDb::new("per-step");
+        let db = Db::open(&t.path()).unwrap();
+        let rec = db.add(new_rec("h1")).await.unwrap();
+        db.enqueue(rec, "diarize").await.unwrap();
+        let job = db.claim_next().await.unwrap().unwrap();
+        db.fail(&job, "boom").await.unwrap();
+        db.enqueue(rec, "export").await.unwrap();
+        let job = db.claim_next().await.unwrap().unwrap();
+        db.complete(&job, None).await.unwrap();
+        let item = &db.list_items().await.unwrap()[0];
+        assert_eq!(item.status, RecordingStatus::Failed);
+        assert_eq!(item.failed_step.as_deref(), Some("diarize"));
+
+        // Busy beats failed; a success of the failed step clears it.
+        db.enqueue(rec, "diarize").await.unwrap();
+        let item = &db.list_items().await.unwrap()[0];
+        assert_eq!(
+            (item.status, item.failed_step.as_deref()),
+            (RecordingStatus::Processing, None)
+        );
+        let job = db.claim_next().await.unwrap().unwrap();
+        db.complete(&job, None).await.unwrap();
+        let item = &db.list_items().await.unwrap()[0];
+        assert_eq!(
+            (item.status, item.failed_step.as_deref()),
+            (RecordingStatus::Done, None)
+        );
     }
 
     #[tokio::test]

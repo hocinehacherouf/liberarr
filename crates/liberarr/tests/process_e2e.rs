@@ -153,7 +153,8 @@ async fn setup(test: &str, transcript: &'static str) -> (TempHome, PathBuf, Arc<
              LIBERARR_TRANSCRIBE_MODEL=whisper-1\n\
              LIBERARR_LLM_BASE_URL={base}\n\
              LIBERARR_LLM_API_KEY=sk-test\n\
-             LIBERARR_LLM_MODEL=gpt-test\n",
+             LIBERARR_LLM_MODEL=gpt-test\n\
+             LIBERARR_DIARIZE=off\n",
             pw = "pw".repeat(16),
         ),
     )

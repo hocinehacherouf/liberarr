@@ -9,12 +9,14 @@ pub mod auth;
 
 use axum::Router;
 use axum::middleware::{from_fn_with_state, map_response};
-use axum::routing::{get, patch, post};
+use axum::routing::{get, patch, post, put};
 use liberarr_core::Result;
+use liberarr_core::diarization::Diarization;
 use liberarr_core::jobs::JobInfo;
 use liberarr_core::recordings::{Recording, RecordingItem};
 use liberarr_core::summaries::MeetingSummary;
 use liberarr_core::transcription::Transcript;
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -29,6 +31,24 @@ pub trait Backend: Send + Sync + 'static {
     fn jobs(&self, id: i64) -> impl Future<Output = Result<Vec<JobInfo>>> + Send;
     /// Queues `step` (already validated against `STEPS`); the worker picks it up.
     fn enqueue(&self, id: i64, step: &str) -> impl Future<Output = Result<i64>> + Send;
+    fn diarization(&self, id: i64) -> impl Future<Output = Result<Option<Diarization>>> + Send;
+    /// The names the owner gave, by 0-based speaker.
+    fn speaker_names(&self, id: i64) -> impl Future<Output = Result<BTreeMap<u32, String>>> + Send;
+    /// The speaker count the owner set, if any.
+    fn requested_speakers(&self, id: i64) -> impl Future<Output = Result<Option<u32>>> + Send;
+    /// `None` resets the speaker to its default label.
+    fn set_speaker_name(
+        &self,
+        id: i64,
+        speaker: u32,
+        name: Option<&str>,
+    ) -> impl Future<Output = Result<()>> + Send;
+    /// `Error::Conflict` when diarization is turned off.
+    fn set_speaker_count(
+        &self,
+        id: i64,
+        count: Option<u32>,
+    ) -> impl Future<Output = Result<()>> + Send;
     /// `Error::NotFound` when the summary or the action index does not exist,
     /// `Error::Conflict` when the action at `index` no longer reads `action`.
     fn toggle_action(
@@ -78,6 +98,14 @@ pub fn router<B: Backend>(state: AppState<B>, bind: SocketAddr) -> Router {
         .route("/recordings/{id}/audio", get(api::audio::<B>))
         .route("/recordings/{id}/rerun", post(api::rerun::<B>))
         .route(
+            "/recordings/{id}/speakers/{n}",
+            put(api::rename_speaker::<B>),
+        )
+        .route(
+            "/recordings/{id}/speaker-count",
+            put(api::speaker_count::<B>),
+        )
+        .route(
             "/recordings/{id}/actions/{index}",
             patch(api::toggle_action::<B>),
         )
@@ -105,9 +133,11 @@ mod tests {
     use axum::body::Body;
     use axum::extract::ConnectInfo;
     use axum::http::{Request, StatusCode, header};
+    use liberarr_core::diarization::SpeakerTurn;
     use liberarr_core::jobs::JobStatus;
     use liberarr_core::recordings::{RecordingStatus, Source};
     use liberarr_core::summaries::Action;
+    use liberarr_core::transcription::Segment;
     use std::sync::Mutex;
     use tower::ServiceExt;
 
@@ -115,6 +145,10 @@ mod tests {
     #[derive(Default)]
     struct Fake {
         jobs: Arc<Mutex<Vec<JobInfo>>>,
+        names: Arc<Mutex<BTreeMap<u32, String>>>,
+        count: Arc<Mutex<Option<u32>>>,
+        /// `LIBERARR_DIARIZE=off`.
+        diarize_off: bool,
     }
     impl Backend for Fake {
         async fn list(&self) -> Result<Vec<RecordingItem>> {
@@ -141,8 +175,53 @@ mod tests {
                 export_path: None,
             }))
         }
+        /// Two segments: the first is covered by speaker 0, the second by nobody.
         async fn transcript(&self, _: i64) -> Result<Option<Transcript>> {
-            Ok(None)
+            let seg = |start, end| Segment {
+                start,
+                end,
+                text: "x".into(),
+            };
+            Ok(Some(Transcript {
+                engine: "e".into(),
+                language: None,
+                text: "x x".into(),
+                segments: vec![seg(0.0, 5.0), seg(20.0, 25.0)],
+                has_timestamps: true,
+            }))
+        }
+        /// Speakers 0 and 1 over the first ten seconds.
+        async fn diarization(&self, id: i64) -> Result<Option<Diarization>> {
+            let turn = |start, end, speaker| SpeakerTurn {
+                start,
+                end,
+                speaker,
+            };
+            Ok((id == 1).then(|| Diarization {
+                turns: vec![turn(0.0, 6.0, 0), turn(6.0, 10.0, 1)],
+                engine: "fake".into(),
+            }))
+        }
+        async fn speaker_names(&self, _: i64) -> Result<BTreeMap<u32, String>> {
+            Ok(self.names.lock().expect("lock").clone())
+        }
+        async fn requested_speakers(&self, _: i64) -> Result<Option<u32>> {
+            Ok(*self.count.lock().expect("lock"))
+        }
+        async fn set_speaker_name(&self, _: i64, speaker: u32, name: Option<&str>) -> Result<()> {
+            let mut names = self.names.lock().expect("lock");
+            match name {
+                Some(n) => names.insert(speaker, n.into()),
+                None => names.remove(&speaker),
+            };
+            Ok(())
+        }
+        async fn set_speaker_count(&self, _: i64, count: Option<u32>) -> Result<()> {
+            if self.diarize_off {
+                return Err(liberarr_core::Error::Conflict("diarization off".into()));
+            }
+            *self.count.lock().expect("lock") = count;
+            Ok(())
         }
         async fn summary(&self, _: i64) -> Result<Option<MeetingSummary>> {
             Ok(None)
@@ -449,6 +528,147 @@ mod tests {
             StatusCode::ACCEPTED
         );
         assert_eq!(jobs.lock().expect("lock").len(), 2);
+    }
+
+    fn put(uri: &str, body: &str) -> Request<Body> {
+        req("PUT", &format!("/api/recordings/{uri}"), Some("key"), body)
+    }
+
+    async fn json(app: &Router, r: Request<Body>) -> serde_json::Value {
+        let res = app.clone().oneshot(r).await.expect("response");
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        serde_json::from_slice(&bytes).expect("json")
+    }
+
+    #[tokio::test]
+    async fn detail_labels_segments_and_lists_the_names() {
+        let fake = Fake::default();
+        *fake.count.lock().expect("lock") = Some(2);
+        fake.names.lock().expect("lock").insert(0, "Alice".into());
+        let d = json(
+            &app_with(fake),
+            req("GET", "/api/recordings/1", Some("key"), ""),
+        )
+        .await;
+        assert_eq!(
+            d["speakers"],
+            serde_json::json!({"turns_present": true, "requested": 2, "names": {"0": "Alice"}})
+        );
+        let speakers: Vec<_> = d["transcript"]["segments"]
+            .as_array()
+            .expect("segments")
+            .iter()
+            .map(|s| s["speaker"].clone())
+            .collect();
+        assert_eq!(speakers, [serde_json::json!(0), serde_json::Value::Null]);
+    }
+
+    #[tokio::test]
+    async fn rename_queues_export() {
+        let fake = Fake::default();
+        let (jobs, names) = (Arc::clone(&fake.jobs), Arc::clone(&fake.names));
+        let app = app_with(fake);
+        let rename = |n: u32, name: &str| {
+            put(
+                &format!("1/speakers/{n}"),
+                &format!(r#"{{"name":{name:?}}}"#),
+            )
+        };
+        assert_eq!(
+            status(&app, rename(1, "  Bob ")).await,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(names.lock().expect("lock")[&1], "Bob");
+        assert_eq!(jobs.lock().expect("lock")[0].step, "export");
+        // Busy (the export is queued): the name is saved, no second export.
+        assert_eq!(
+            status(&app, rename(0, "Alice")).await,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(jobs.lock().expect("lock").len(), 1);
+        // Blank resets.
+        jobs.lock().expect("lock")[0].status = JobStatus::Done;
+        assert_eq!(status(&app, rename(1, "  ")).await, StatusCode::NO_CONTENT);
+        assert!(!names.lock().expect("lock").contains_key(&1));
+        assert_eq!(jobs.lock().expect("lock").len(), 2);
+        // Not a speaker of this recording, or no such recording.
+        assert_eq!(status(&app, rename(2, "Eve")).await, StatusCode::NOT_FOUND);
+        let other = put("2/speakers/0", r#"{"name":"Eve"}"#);
+        assert_eq!(status(&app, other).await, StatusCode::NOT_FOUND);
+        // 60 characters is the most; control characters are refused.
+        assert_eq!(
+            status(&app, rename(0, &"é".repeat(61))).await,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            status(&app, rename(0, "a\nb")).await,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            status(&app, rename(0, &"é".repeat(60))).await,
+            StatusCode::NO_CONTENT
+        );
+    }
+
+    #[tokio::test]
+    async fn speaker_count_refused_when_busy_or_off() {
+        let fake = Fake::default();
+        let (jobs, count) = (Arc::clone(&fake.jobs), Arc::clone(&fake.count));
+        let app = app_with(fake);
+        let set = |id: u32, body: &str| put(&format!("{id}/speaker-count"), body);
+        for bad in [r#"{"count":0}"#, r#"{"count":21}"#, r#"{"count":-1}"#] {
+            assert!(status(&app, set(1, bad)).await.is_client_error(), "{bad}");
+        }
+        assert_eq!(
+            status(&app, set(2, r#"{"count":2}"#)).await,
+            StatusCode::NOT_FOUND
+        );
+        assert!(jobs.lock().expect("lock").is_empty());
+        assert_eq!(
+            status(&app, set(1, r#"{"count":2}"#)).await,
+            StatusCode::ACCEPTED
+        );
+        assert_eq!(
+            (
+                *count.lock().expect("lock"),
+                jobs.lock().expect("lock")[0].step.clone()
+            ),
+            (Some(2), "diarize".into())
+        );
+        // Busy: nothing is saved or queued.
+        assert_eq!(
+            status(&app, set(1, r#"{"count":5}"#)).await,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(*count.lock().expect("lock"), Some(2));
+        assert_eq!(jobs.lock().expect("lock").len(), 1);
+        // Done: null clears the count and 20 is the largest.
+        jobs.lock().expect("lock")[0].status = JobStatus::Done;
+        assert_eq!(
+            status(&app, set(1, r#"{"count":null}"#)).await,
+            StatusCode::ACCEPTED
+        );
+        assert_eq!(*count.lock().expect("lock"), None);
+        jobs.lock().expect("lock")[1].status = JobStatus::Done;
+        assert_eq!(
+            status(&app, set(1, r#"{"count":20}"#)).await,
+            StatusCode::ACCEPTED
+        );
+
+        // Diarization off: refused, nothing queued.
+        let off = Fake {
+            diarize_off: true,
+            ..Fake::default()
+        };
+        let jobs = Arc::clone(&off.jobs);
+        let app = app_with(off);
+        assert_eq!(
+            status(&app, set(1, r#"{"count":2}"#)).await,
+            StatusCode::CONFLICT
+        );
+        assert!(jobs.lock().expect("lock").is_empty());
     }
 
     #[tokio::test]
