@@ -43,7 +43,7 @@ A key pair already stored is kept; `liberarr link --force` fetches a new one.
 liberarr pull
 ```
 
-Wake the device and close the Plaud app on your phone first: the device talks to one Bluetooth client at a time. `pull` finds the device (about 12 s), downloads new recordings with progress, then processes them: transcription, summary, export of a note. The first local transcription downloads the Whisper model (575 MB) first.
+Wake the device and close the Plaud app on your phone first: the device talks to one Bluetooth client at a time. `pull` finds the device (about 12 s), downloads new recordings with progress, then processes them: transcription, summary, speaker labels, export of a note. The first local transcription downloads the Whisper model (575 MB) first, and the first diarization the speaker models (46 MB).
 
 - A dropped download resumes on the next `pull`.
 - A recording already pulled is never pulled again.

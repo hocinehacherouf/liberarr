@@ -1,6 +1,6 @@
 # Install
 
-Liberarr is one binary. Nothing else is needed to run it. Local transcription downloads its Whisper model (575 MB) into `~/.liberarr/models` the first time it runs; see [AI providers](ai-providers.md#local-transcription). It needs a CPU with AVX2 (x86-64) or Armv8.2-A (ARM Linux).
+Liberarr is one binary. Nothing else is needed to run it. Local transcription downloads its Whisper model (575 MB) into `~/.liberarr/models` the first time it runs; see [AI providers](ai-providers.md#local-transcription). Speaker labels download two small models (46 MB) the same way, see [Speaker labels](speakers.md); they add about 16 MB to the binary. It needs a CPU with AVX2 (x86-64) or Armv8.2-A (ARM Linux).
 
 ## Supported platforms
 

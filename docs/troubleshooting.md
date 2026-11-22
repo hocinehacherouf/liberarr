@@ -31,7 +31,7 @@ The device talks to one Bluetooth client at a time, and sleeps when idle.
 
 ## Processing
 
-`process`, `pull`, the web UI and the terminal app show which step failed (`transcribe`, `summarize` or `export`) and why.
+`process`, `pull`, the web UI and the terminal app show which step failed (`transcribe`, `summarize`, `diarize` or `export`) and why.
 
 - **Retry**: `liberarr rerun <id>` queues the failed step again; prior outputs are kept until it succeeds. It runs in `serve`, `tui`, or with the next `pull` or `process`.
 - **`is already being processed`**: wait for the current work to finish.
@@ -46,6 +46,10 @@ The device talks to one Bluetooth client at a time, and sleeps when idle.
 - **`recording too long for local transcription`**: over 12 hours. Split the audio or use a cloud transcriber.
 - **No timestamps / playback not synchronized**: the transcription model returns text only. Use `local`, `whisper-1` or a `voxtral` model.
 - **`done, no speech detected`**: the recording has no speech; no summary or note is made, on purpose.
+- **Wrong number of speakers, or two people merged into one**: in the web UI, set the number of speakers on the recording instead of `Automatic`; this reruns the diarization. See [Speaker labels](speakers.md).
+- **Speaker names are gone**: they are reset when the diarization runs again and finds different turns. Rename them again.
+- **Speaker step failed but the note exists**: the diarization is optional; the note is written without labels. `rerun` retries it, or set `LIBERARR_DIARIZE=off`.
+- **Memory is tight on a small NAS**: `serve` and the terminal app each run a worker, so Whisper and the diarization can run at the same time and add up (about 1 GB, and 0.5 to 1 GB). Run one of them, or set `LIBERARR_DIARIZE=off`.
 - **Work stuck after a crash**: the next `serve`, `tui`, `pull` or `process` puts interrupted tasks back in the queue.
 
 ## Web UI

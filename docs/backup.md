@@ -22,7 +22,7 @@ What the backup contains:
 | `audio/`: the original audio | Downloads still in progress (`device/partial`): the next pull resumes them |
 | `device/`: the device keys, encrypted | Symbolic links: never followed, so nothing outside the home is read |
 | `obsidian/`: the notes, when they are in the home | The notes, when `LIBERARR_OBSIDIAN_DIR` points outside the home: back up that folder yourself; the command reminds you |
-| | `models/`: the local Whisper models (about 575 MB), downloaded again when missing |
+| | `models/`: the local Whisper and speaker models (about 620 MB), downloaded again when missing |
 
 **Keep the `.env` somewhere safe and separate**, for example in a password manager. Without it, a restored home keeps every recording, transcript and summary, but you must run `liberarr init` again (AI provider keys, new admin password) and `liberarr link` again (the stored device keys cannot be read without the old `LIBERARR_SECRET_KEY`).
 
