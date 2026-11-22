@@ -455,7 +455,7 @@ mod tests {
     #[tokio::test]
     async fn agent_cli_times_out() {
         let p = Preset::Codex;
-        let (dir, script) = fake(p, "", "exec sleep 30");
+        let (dir, script) = fake(p, "", "pwd > '{d}/pwd'\nexec sleep 30");
         let start = Instant::now();
         let err = cli(p, &script, "")
             .with_timeout(Duration::from_secs(1))
@@ -465,6 +465,8 @@ mod tests {
             .to_string();
         assert!(start.elapsed() < Duration::from_secs(5));
         assert!(err.contains("codex") && err.contains("timed out"), "{err}");
+        let cwd = std::fs::read_to_string(dir.join("pwd")).unwrap();
+        assert!(!Path::new(cwd.trim()).exists(), "{cwd} left behind");
         std::fs::remove_dir_all(&dir).unwrap();
 
         // More than 16 MiB is refused at once, not at the timeout.
