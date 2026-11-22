@@ -19,6 +19,10 @@ pub fn decode_opus_16k(data: &[u8]) -> Result<Vec<f32>> {
     let mut out = Vec::new();
     let mut frame = [0f32; MAX_PACKET_SAMPLES];
     for packet in &stream.packets {
+        // An empty packet makes libopus synthesise 120 ms of concealment audio, shifting every later timestamp.
+        if packet.is_empty() {
+            continue;
+        }
         let n = decoder
             .decode_float(packet, &mut frame, false)
             .map_err(|_| undecodable())?;
@@ -77,9 +81,8 @@ pub fn normalize_dynamic(samples: &mut [f32]) {
         let k = (x as usize).min(last);
         let next = (k + 1).min(last);
         let gain = smooth[k] + (smooth[next] - smooth[k]) * (x - k as f32);
-        // Interpolating between frame centres can overshoot a frame's own gain by a fraction of a percent
-        // next to a quiet frame: clamp at the target peak, so output never reaches full scale.
-        *s = (*s * gain).clamp(-TARGET_PEAK, TARGET_PEAK);
+        // Last safety net only: the gains already keep peaks near 0.95.
+        *s = (*s * gain).clamp(-1.0, 1.0);
     }
 }
 
@@ -133,9 +136,16 @@ mod tests {
         let mut s = sine(0.02, 5);
         s.extend(sine(0.9, 5));
         s.extend(vec![0.0; RATE]);
+        let input = s.clone();
         normalize_dynamic(&mut s);
         assert!(peak(&s[2 * RATE..5 * RATE]) > 0.15);
-        assert!(peak(&s[5 * RATE..10 * RATE]) <= 0.95 + 1e-3);
+        assert!(peak(&s[5 * RATE..10 * RATE]) <= 0.95 + 5e-3);
+        // The quiet frames' gain of 10 must not spill onto the loud half (a clamp would hide it in the peak).
+        for i in 6 * RATE + RATE / 2..10 * RATE {
+            if input[i].abs() > 0.5 {
+                assert!(s[i].abs() / input[i].abs() <= 1.06 + 0.01, "gain at {i}");
+            }
+        }
         assert!(s.iter().all(|v| v.abs() < 1.0));
         assert!(s[10 * RATE..].iter().all(|v| *v == 0.0));
     }
