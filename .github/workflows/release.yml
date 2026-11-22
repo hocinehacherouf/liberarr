@@ -29,7 +29,16 @@ jobs:
           # Ubuntu 22.04 (glibc 2.35) keeps the binaries running on Debian 12 and similar NAS systems.
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-22.04-arm
+            # whisper.cpp targets this CPU level instead of the runner's own (see `env` below).
+            ggml_cpu_arm_arch: armv8.2-a
     runs-on: ${{ matrix.os }}
+    # whisper-rs-sys forwards GGML_* to cmake but declares no rebuild trigger: set at job level, so no
+    # step reuses a build made without them. Never tune whisper.cpp for the runner's CPU (the binary
+    # runs elsewhere): on x86 GGML_NATIVE=OFF alone gives AVX2/FMA; macOS arm64 keeps clang's apple-m1.
+    # Empty on the other rows: cmake reads it as unset.
+    env:
+      GGML_NATIVE: "OFF"
+      GGML_CPU_ARM_ARCH: ${{ matrix.ggml_cpu_arm_arch }}
     permissions:
       contents: read
       # Sign the build provenance attestation of the archive.

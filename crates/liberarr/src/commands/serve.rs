@@ -13,6 +13,7 @@ const IDLE: Duration = Duration::from_secs(2);
 
 pub async fn run(app: App, host: IpAddr, port: u16) -> Outcome {
     super::note_content_language(&app.cfg);
+    super::note_model_download(&app);
     // Once, before the worker claims anything.
     let requeued = app.db.reset_stale().await?;
     if requeued > 0 {

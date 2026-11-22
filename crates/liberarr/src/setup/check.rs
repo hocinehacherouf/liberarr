@@ -20,6 +20,10 @@ pub fn connect(
     key: &str,
     oauth: Option<&str>,
 ) -> Result<Vec<String>, String> {
+    // Nothing to reach: the model is downloaded on the first transcription.
+    if provider == Provider::Local {
+        return Ok(Vec::new());
+    }
     if let Some(preset) = Preset::from_provider(provider) {
         let program = (!url.is_empty()).then(|| PathBuf::from(url));
         let cli = AgentCli::new(preset, program, String::new(), oauth.map(String::from))
