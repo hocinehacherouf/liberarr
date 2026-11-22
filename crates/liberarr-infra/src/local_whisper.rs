@@ -42,14 +42,12 @@ pub fn speech_chunks(spans: &[(f64, f64)]) -> Vec<(f64, f64)> {
 
 pub struct LocalWhisper {
     models: ModelStore,
-    vocabulary: Vec<String>,
 }
 
 impl LocalWhisper {
-    pub fn new(models_dir: PathBuf, vocabulary: Vec<String>) -> Self {
+    pub fn new(models_dir: PathBuf) -> Self {
         Self {
             models: ModelStore::new(models_dir),
-            vocabulary,
         }
     }
 
@@ -63,6 +61,38 @@ fn failed(what: &str) -> Error {
     Error::Provider(format!("local transcription: {what}"))
 }
 
+/// whisper.cpp is built for fixed instruction sets: on a CPU without them it dies with SIGILL
+/// (killing `serve`), so the job fails cleanly instead.
+fn check_cpu() -> Result<()> {
+    #[cfg(target_arch = "x86_64")]
+    let ok = ["avx", "avx2", "fma", "f16c", "bmi2"]
+        .iter()
+        .all(|f| match *f {
+            "avx" => is_x86_feature_detected!("avx"),
+            "avx2" => is_x86_feature_detected!("avx2"),
+            "fma" => is_x86_feature_detected!("fma"),
+            "f16c" => is_x86_feature_detected!("f16c"),
+            _ => is_x86_feature_detected!("bmi2"),
+        });
+    #[cfg(all(target_arch = "aarch64", target_os = "linux"))]
+    let ok = std::arch::is_aarch64_feature_detected!("lse")
+        && std::arch::is_aarch64_feature_detected!("rdm")
+        && std::arch::is_aarch64_feature_detected!("crc");
+    #[cfg(not(any(
+        target_arch = "x86_64",
+        all(target_arch = "aarch64", target_os = "linux")
+    )))]
+    let ok = true;
+    if ok {
+        Ok(())
+    } else {
+        Err(Error::Unsupported(
+            "this CPU lacks the instructions local transcription needs (x86_64: AVX2; ARM: Armv8.2-A); use a cloud transcriber"
+                .into(),
+        ))
+    }
+}
+
 impl Transcriber for LocalWhisper {
     async fn transcribe(&self, audio: &[u8], _filename: &str) -> Result<ChunkResult> {
         // Cheap check first: a bad file must not trigger the model download.
@@ -72,10 +102,11 @@ impl Transcriber for LocalWhisper {
                     .into(),
             ));
         }
+        check_cpu()?;
         let whisper = self.models.ensure(&WHISPER_TURBO).await?;
         let vad = self.models.ensure(&SILERO_VAD).await?;
-        let (audio, vocabulary) = (audio.to_vec(), self.vocabulary.join(", "));
-        tokio::task::spawn_blocking(move || run(&audio, &whisper, &vad, &vocabulary))
+        let audio = audio.to_vec();
+        tokio::task::spawn_blocking(move || run(&audio, &whisper, &vad))
             .await
             .map_err(|_| failed("worker stopped"))?
     }
@@ -87,7 +118,7 @@ impl Transcriber for LocalWhisper {
 
 /// Decode, normalise, find the speech, then transcribe it. The models live for this call only
 /// (about 1 GB that a NAS should not hold between recordings).
-fn run(audio: &[u8], whisper: &Path, vad: &Path, vocabulary: &str) -> Result<ChunkResult> {
+fn run(audio: &[u8], whisper: &Path, vad: &Path) -> Result<ChunkResult> {
     // whisper.cpp logs token text in debug builds: route its logs nowhere.
     static HOOKS: Once = Once::new();
     HOOKS.call_once(whisper_rs::install_logging_hooks);
@@ -135,15 +166,14 @@ fn run(audio: &[u8], whisper: &Path, vad: &Path, vocabulary: &str) -> Result<Chu
         params.set_language(Some("auto"));
         params.set_translate(false);
         params.set_no_context(true);
+        // Past text in the prompt fed repetition loops on real meetings (72 identical segments on a 19-min file): measured fix.
+        params.set_n_max_text_ctx(0);
         params.set_suppress_nst(true);
         params.set_n_threads(i32::try_from(threads).unwrap_or(4));
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_special(false);
         params.set_print_timestamps(false);
-        if !vocabulary.is_empty() {
-            params.set_initial_prompt(vocabulary);
-        }
         state
             .full(params, &samples[from..to])
             .map_err(|_| failed("transcription failed"))?;
@@ -186,7 +216,7 @@ mod tests {
     #[tokio::test]
     async fn non_opus_input_is_refused_before_any_download() {
         let dir = std::env::temp_dir().join(format!("liberarr-no-models-{}", std::process::id()));
-        let whisper = LocalWhisper::new(dir.clone(), Vec::new());
+        let whisper = LocalWhisper::new(dir.clone());
         let err = tokio::spawn(async move { whisper.transcribe(b"RIFF....WAVE", "a.wav").await })
             .await
             .unwrap()

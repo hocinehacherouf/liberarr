@@ -48,7 +48,7 @@ Lines are `NAME=value`; `#` starts a comment.
 | `CLAUDE_CODE_OAUTH_TOKEN` | `claude` summary provider, for a `serve` that cannot reach your `claude` login (a server): the token from `claude setup-token`. Passed to `claude` only. See [AI providers](ai-providers.md#subscription-clis). |
 | `LIBERARR_LANG` | Language of the command line (messages and `--help`): `en` or `fr`. Default: the OS locale (`LC_ALL`, `LC_MESSAGES`, `LANG`), else English. |
 | `LIBERARR_COOKIE_SECURE` | `true` to set the `Secure` flag on the login cookie, when the web UI is served over HTTPS. |
-| `LIBERARR_TRANSCRIBE_VOCABULARY` | Names, acronyms and jargon the transcription should spell your way, comma-separated: `Liberarr, Plaud Note, HbA1c`. With `local` it is Whisper's initial prompt and stays on your machine. With `mistral` it is sent with every audio upload (see [Privacy](privacy.md)) as `context_bias`. Other providers ignore it, and Liberarr prints a warning at start. Keep the list short: Mistral counts it in the same context window as the audio, and a request over the limit fails. |
+| `LIBERARR_TRANSCRIBE_VOCABULARY` | Names, acronyms and jargon the transcription should spell your way, comma-separated: `Liberarr, Plaud Note, HbA1c`. Sent with every audio upload to the transcription provider (see [Privacy](privacy.md)): as `context_bias` with `mistral`. `local` and the other providers ignore it, and Liberarr prints a warning at start. Keep the list short: Mistral counts it in the same context window as the audio, and a request over the limit fails. |
 
 The note export is one-way. In an existing note, Liberarr writes only between `%% liberarr:start %%` and `%% liberarr:end %%`: your own text outside these markers is kept.
 

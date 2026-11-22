@@ -134,7 +134,7 @@ setup.routing_menu: "Restreindre OpenRouter à quel fournisseur pour %{model} ? 
 setup.routing_none: "aucune restriction : modèles partagés d'OpenRouter autorisés, facturés sur vos crédits OpenRouter"
 setup.routing_loading: "Recherche des fournisseurs de ce modèle"
 config.openrouter_unrestricted: "Attention : %{var} est vide : OpenRouter peut servir ces requêtes avec ses propres modèles partagés, facturés sur vos crédits OpenRouter."
-config.vocabulary_ignored: "Attention : LIBERARR_TRANSCRIBE_VOCABULARY est ignorée : seuls les fournisseurs local et mistral acceptent un vocabulaire."
+config.vocabulary_ignored: "Attention : LIBERARR_TRANSCRIBE_VOCABULARY est ignorée : seul le fournisseur mistral accepte un vocabulaire."
 tui.cancelled: "Configuration annulée."
 tui.too_small: "Fenêtre trop petite : agrandissez-la à au moins 60×16."
 tui.setup: "configuration"

@@ -42,9 +42,9 @@ enum AnyLlm {
     Cli(AgentCli),
 }
 
-/// Whether the provider takes a vocabulary: Mistral (`context_bias`) and Local (Whisper's prompt).
+/// Whether the provider takes a vocabulary: only Mistral (`context_bias`).
 fn takes_vocabulary(p: &Profile) -> bool {
-    matches!(p.provider, Provider::Mistral | Provider::Local)
+    p.provider == Provider::Mistral
 }
 
 fn transcriber(p: &Profile, vocabulary: &[String], home: &Path) -> AnyTranscriber {
@@ -56,9 +56,7 @@ fn transcriber(p: &Profile, vocabulary: &[String], home: &Path) -> AnyTranscribe
         Vec::new()
     };
     match p.provider {
-        Provider::Local => {
-            AnyTranscriber::Local(LocalWhisper::new(home.join("models"), vocabulary))
-        }
+        Provider::Local => AnyTranscriber::Local(LocalWhisper::new(home.join("models"))),
         Provider::Mistral => AnyTranscriber::Mistral(
             MistralTranscriber::new(url, key, model).with_context_bias(vocabulary),
         ),
@@ -401,7 +399,7 @@ mod tests {
             Provider::Mistral,
             "voxtral-mini-transcribe-3"
         )));
-        assert!(takes_vocabulary(&p(Provider::Local, "")));
+        assert!(!takes_vocabulary(&p(Provider::Local, "")));
         for (provider, model) in [
             (Provider::OpenRouter, "openai/gpt-transcribe"),
             (Provider::Compatible, "whisper-1"),

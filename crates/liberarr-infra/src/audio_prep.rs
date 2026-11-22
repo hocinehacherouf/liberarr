@@ -10,8 +10,16 @@ fn undecodable() -> Error {
     Error::Unsupported("audio could not be decoded".into())
 }
 
+/// 12 hours at 16 kHz (about 2.8 GB of f32): crafted packets expand about 3800x, and whisper-rs's VAD
+/// takes a C int sample count.
+const MAX_SAMPLES: usize = 12 * 3600 * RATE;
+
 /// Mono f32 samples at 16 kHz in [-1, 1], pre-skip removed (pre_skip is in 48 kHz samples: drop pre_skip / 3).
 pub fn decode_opus_16k(data: &[u8]) -> Result<Vec<f32>> {
+    decode_limited(data, MAX_SAMPLES)
+}
+
+fn decode_limited(data: &[u8], max_samples: usize) -> Result<Vec<f32>> {
     let stream = opus_packets(data).map_err(|_| undecodable())?;
     // libopus down-mixes a stereo stream to the mono decoder.
     let mut decoder =
@@ -26,6 +34,11 @@ pub fn decode_opus_16k(data: &[u8]) -> Result<Vec<f32>> {
         let n = decoder
             .decode_float(packet, &mut frame, false)
             .map_err(|_| undecodable())?;
+        if out.len() + n > max_samples {
+            return Err(Error::Unsupported(
+                "recording too long for local transcription (over 12 hours)".into(),
+            ));
+        }
         out.extend_from_slice(&frame[..n]);
     }
     out.drain(..(usize::from(stream.pre_skip) / 3).min(out.len()));
@@ -121,6 +134,14 @@ mod tests {
         assert!(crossings.abs_diff(1760) <= 88, "crossings {crossings}");
         let rms = (s.iter().map(|v| v * v).sum::<f32>() / s.len() as f32).sqrt();
         assert!(rms > 0.05, "rms {rms}");
+    }
+
+    #[test]
+    fn decode_stops_at_the_sample_limit() {
+        let f = fixture();
+        assert!(decode_limited(&f, 40_000).is_ok());
+        let err = decode_limited(&f, 16_000).unwrap_err();
+        assert!(matches!(err, Error::Unsupported(m) if m.contains("12 hours")));
     }
 
     #[test]

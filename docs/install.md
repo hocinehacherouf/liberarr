@@ -11,7 +11,7 @@ Liberarr is one binary. Nothing else is needed to run it. Local transcription do
 | `x86_64-unknown-linux-gnu` | Linux, x86-64 |
 | `aarch64-unknown-linux-gnu` | Linux, ARM64 |
 
-Linux builds need glibc 2.35 or newer (Ubuntu 22.04, Debian 12) and use the host's BlueZ service for Bluetooth (present on desktop distributions); `libdbus` is linked dynamically. Windows is not supported.
+Linux builds need glibc 2.35 or newer (Ubuntu 22.04, Debian 12), need `libstdc++` (almost always present) and use the host's BlueZ service for Bluetooth (present on desktop distributions); `libdbus` is linked dynamically. Windows is not supported.
 
 ## Install script
 

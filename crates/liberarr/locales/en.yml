@@ -134,7 +134,7 @@ setup.routing_menu: "Restrict OpenRouter to which provider for %{model}? Pick th
 setup.routing_none: "no restriction: OpenRouter's own shared models allowed, billed on your OpenRouter credits"
 setup.routing_loading: "Looking up the providers of this model"
 config.openrouter_unrestricted: "Warning: %{var} is empty: OpenRouter may serve these requests with its own shared models, billed on your OpenRouter credits."
-config.vocabulary_ignored: "Warning: LIBERARR_TRANSCRIBE_VOCABULARY is ignored: only the local and mistral providers take a vocabulary."
+config.vocabulary_ignored: "Warning: LIBERARR_TRANSCRIBE_VOCABULARY is ignored: only the mistral provider takes a vocabulary."
 tui.cancelled: "Setup cancelled."
 tui.too_small: "Window too small: enlarge it to at least 60×16."
 tui.setup: "setup"

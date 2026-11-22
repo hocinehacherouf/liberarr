@@ -34,10 +34,10 @@ Transcription forces no language: a recording mixing French and English works. P
 
 - **One-time download.** The first transcription downloads two files into `<LIBERARR_HOME>/models`, checks their SHA-256 and keeps them: Whisper large-v3-turbo, quantized (575 MB) and the Silero voice-activity model (0.9 MB), both from Hugging Face. After that it works fully offline. `liberarr backup` skips this folder; it is downloaded again when missing.
 - **Speed.** An Apple Silicon Mac (Metal) takes a few minutes per hour of audio. A CPU-only machine or a NAS is much slower, and a long recording can take longer than it lasts.
-- **CPU.** Release builds need AVX2 on x86-64 (any CPU since about 2013-2015) and Armv8.2-A on ARM Linux (Raspberry Pi 5 and recent servers, not a Pi 4). On a CPU without it, use a cloud transcriber.
+- **CPU.** Release builds need AVX2 on x86-64 (any CPU since about 2013-2015) and Armv8.2-A on ARM Linux (Raspberry Pi 5 and recent servers, not a Pi 4). On a CPU without it the job fails with a clear message: use a cloud transcriber.
+- **Memory.** About 1 GB for the model, plus about 230 MB per hour of audio. Recordings over 12 hours are refused.
 - **Ogg only.** It reads the Ogg Opus files of the device, and files imported as Ogg Opus. Any other format (mp3, m4a, wav…) needs a cloud transcriber, or a conversion to Ogg Opus first.
-- **Vocabulary.** `LIBERARR_TRANSCRIBE_VOCABULARY` is passed to Whisper as its initial prompt, and stays on your machine.
-- **Mixed languages.** The language is re-detected about every 5 minutes of speech and never forced. A recording that switches language between sentences is handled well; heavy switching inside one sentence may still come out in a single language. Check such a recording, and use a cloud transcriber if it matters.
+- **Mixed languages.** The language is re-detected at least every 5 minutes of speech and never forced. A recording that switches language between sentences is handled well; heavy switching inside one sentence may still come out in a single language. Check such a recording, and use a cloud transcriber if it matters.
 
 ## Subscription CLIs
 

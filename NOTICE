@@ -39,6 +39,11 @@ whisper.cpp and ggml (local transcription), built in by the whisper-rs crate:
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 
+  ggml ops.cpp also carries a separate MIT notice, with the same permission and
+  warranty terms as above:
+
+  Copyright (c) 2023 Jeffrey Quesnelle and Bowen Peng
+
 libopus (decoding of the recordings' Opus audio), built in by the opus crate:
 
   Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic,
