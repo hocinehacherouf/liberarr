@@ -44,12 +44,12 @@ Liberarr is an independent project, **not affiliated with, endorsed by or sponso
 - **Summary**, **mind map** and **action table** for each recording.
 - **Obsidian export:** each recording becomes a Markdown note in the folder of your choice.
 - **Terminal app** (`liberarr tui`): one dashboard with the recordings, the selected one's summary, transcript, mind map and actions to tick, the pipeline and the device pull.
-- **Local web UI** (`liberarr serve`): read recordings, play the audio next to the transcript, rerun a failed step, behind a login.
+- **Local web UI** (`liberarr serve`): read recordings, play the audio next to the transcript, jump to a recording with Ctrl/⌘+K, rerun a failed step, in a light or dark theme, behind a login.
 - **English and French**, for the interface and for the summaries.
 
 <div align="center">
 
-<img src="docs/assets/web-recording.png" alt="The Liberarr web UI on a recording page: the audio player, then the summary and the mind map of the recording" width="880">
+<img src="docs/assets/web-recording.png" alt="The Liberarr web UI on a recording page: the list of recordings in the sidebar, the transcript with the speaker names, and the audio bar" width="880">
 
 <sub>The web UI (`liberarr serve`), on fictional recordings.</sub>
 
