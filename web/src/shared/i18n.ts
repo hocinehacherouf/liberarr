@@ -1,7 +1,7 @@
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
-import en from './locales/en.json'
-import fr from './locales/fr.json'
+import en from '@/shared/locales/en.json'
+import fr from '@/shared/locales/fr.json'
 
 // Compile-time check: a key missing from the French catalogue is a build error.
 fr satisfies typeof en

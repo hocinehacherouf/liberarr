@@ -10,9 +10,9 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { fold } from '@/shared/text'
 import { formatDate, formatTimestamp } from '@/shared/time'
-import { useRecordings } from './api'
-import { StatusBadge } from './StatusBadge'
-import { recordingTitle } from './title'
+import { useRecordings } from '@/features/recordings/api'
+import { StatusBadge } from '@/features/recordings/StatusBadge'
+import { recordingTitle } from '@/features/recordings/title'
 
 export function RecordingsPage() {
   const { t } = useTranslation()

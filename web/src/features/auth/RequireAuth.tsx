@@ -1,7 +1,7 @@
 import { Navigate } from 'react-router'
 import { AppShell } from '@/app/AppShell'
 import { Loading } from '@/shared/Loading'
-import { useMe } from './api'
+import { useMe } from '@/features/auth/api'
 
 /** Gate for every page except login. */
 export function RequireAuth() {

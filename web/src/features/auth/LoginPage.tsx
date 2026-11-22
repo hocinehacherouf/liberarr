@@ -10,7 +10,7 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ApiError } from '@/shared/api'
 import { Logo } from '@/shared/Logo'
-import { useLogin, useMe } from './api'
+import { useLogin, useMe } from '@/features/auth/api'
 
 function message(e: Error, t: TFunction): string {
   if (e instanceof ApiError && e.status === 401) return t('auth.errors.invalidCredentials')

@@ -1,41 +1,27 @@
-import { useEffect, useRef, useState } from 'react'
+import { CopyIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
 
 /** Copies `text` to the clipboard. `label` is the accessible name (what is copied). */
 export function CopyButton({ text, label }: { text: string; label: string }) {
   const { t } = useTranslation()
-  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
-  const timer = useRef<number | undefined>(undefined)
-  useEffect(() => () => window.clearTimeout(timer.current), [])
 
   const copy = async () => {
-    let next: 'copied' | 'failed' = 'copied'
     try {
       // `navigator.clipboard` is undefined outside a secure context (plain HTTP on the LAN).
       if (!navigator.clipboard) throw new Error('no clipboard')
       await navigator.clipboard.writeText(text)
+      toast.success(t('common.copied'))
     } catch {
-      next = 'failed'
+      toast.error(t('common.copyFailed'))
     }
-    setState(next)
-    window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => setState('idle'), next === 'copied' ? 2000 : 5000)
   }
 
   return (
-    <>
-      <button
-        type="button"
-        aria-label={label}
-        onClick={() => void copy()}
-        className="rounded-md border border-border bg-card px-3 py-1 text-sm font-semibold hover:text-primary"
-      >
-        {t(state === 'copied' ? 'common.copied' : 'common.copy')}
-      </button>
-      {/* Always rendered, so screen readers pick up the change. */}
-      <span aria-live="polite" className={state === 'failed' ? 'text-sm text-destructive' : 'sr-only'}>
-        {state === 'idle' ? '' : t(state === 'copied' ? 'common.copied' : 'common.copyFailed')}
-      </span>
-    </>
+    <Button type="button" variant="outline" aria-label={label} onClick={() => void copy()} className="max-md:h-11">
+      <CopyIcon aria-hidden="true" />
+      {t('common.copy')}
+    </Button>
   )
 }

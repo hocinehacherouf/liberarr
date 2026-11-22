@@ -1,7 +1,7 @@
 import { CircleCheckIcon, LoaderCircleIcon, MicOffIcon, TriangleAlertIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Badge } from '@/components/ui/badge'
-import type { RecordingItem } from './api'
+import type { RecordingItem } from '@/features/recordings/api'
 
 type State = Pick<RecordingItem, 'status' | 'no_speech'>
 

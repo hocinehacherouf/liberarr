@@ -1,8 +1,9 @@
 import { memo, useEffect, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
-import { formatTimestamp } from '../../shared/time'
-import type { Segment, Transcript } from '../recordings/api'
-import { SpeakerLabel } from './SpeakerLabel'
+import { formatTimestamp } from '@/shared/time'
+import type { Segment, Transcript } from '@/features/recordings/api'
+import { Button } from '@/components/ui/button'
+import { SpeakerLabel } from '@/features/transcription/SpeakerLabel'
 
 interface Props {
   transcript: Transcript
@@ -32,18 +33,20 @@ const Row = memo(function Row({
   // Both seek buttons do the same; the text one is a mouse convenience, outside the tab order.
   return (
     <li
-      className={`flex w-full flex-wrap gap-x-3 rounded-md border-l-2 px-2 py-1.5 leading-relaxed hover:bg-primary/5 ${active ? 'border-primary bg-primary/10' : 'border-transparent'}`}
+      className={`flex w-full flex-wrap gap-x-3 rounded-md border-l-2 px-2 py-1 leading-relaxed ${active ? 'border-primary bg-accent' : 'border-transparent hover:bg-accent/50'}`}
     >
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="xs"
         onClick={() => onSeek(s.start)}
         aria-current={active || undefined}
-        className="self-start pt-0.5 font-mono text-xs text-primary tabular-nums"
+        className="self-start font-mono tabular-nums"
       >
         {formatTimestamp(s.start)}
-      </button>
+      </Button>
       {s.speaker != null && label != null && <SpeakerLabel speaker={s.speaker} label={label} onRename={onRename} />}
-      <button type="button" tabIndex={-1} onClick={() => onSeek(s.start)} className="min-w-0 flex-1 text-left">
+      <button type="button" tabIndex={-1} onClick={() => onSeek(s.start)} className="min-w-0 flex-1 py-0.5 text-left">
         {s.text}
       </button>
     </li>

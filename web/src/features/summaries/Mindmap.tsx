@@ -1,5 +1,7 @@
 import { useEffect, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { TriangleAlertIcon } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useIsDark } from '@/components/theme-provider'
 
 // Branches alternate the brand's two ends; the root is the darker cyan, readable under white text.
@@ -52,9 +54,10 @@ export function Mindmap({ code }: { code: string }) {
   if (error)
     return (
       <div className="space-y-2">
-        <p role="alert" className="text-sm text-warning">
-          {t('summaries.mindmapError', { error })}
-        </p>
+        <Alert className="text-warning">
+          <TriangleAlertIcon aria-hidden="true" />
+          <AlertDescription className="text-warning">{t('summaries.mindmapError', { error })}</AlertDescription>
+        </Alert>
         <pre className="overflow-x-auto rounded-md border border-border bg-background p-3 text-xs">{code}</pre>
       </div>
     )
