@@ -11,4 +11,6 @@ allow = [
     "CC0-1.0",
     # webpki-root-certs (TLS roots via reqwest/rustls-platform-verifier): permissive data license.
     "CDLA-Permissive-2.0",
+    # whisper-rs (Unlicense).
+    "Unlicense",
 ]

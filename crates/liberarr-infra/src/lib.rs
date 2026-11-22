@@ -2,6 +2,7 @@
 
 pub mod agent_cli;
 pub mod ai;
+pub mod audio_prep;
 pub mod backup;
 pub mod ble;
 pub mod files;

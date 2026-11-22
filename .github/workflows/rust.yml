@@ -40,8 +40,8 @@ jobs:
         run: mkdir -p web/dist && echo '<!doctype html><html></html>' > web/dist/index.html
       - name: Install the Rust toolchain (rust-toolchain.toml)
         run: rustup show
-      - name: Install the BlueZ client headers (btleplug on Linux)
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+      - name: Install the BlueZ client headers (btleplug on Linux) and cmake (libopus)
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config cmake
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked

@@ -22,6 +22,8 @@ sha2 = { workspace = true }
 # BLE transport (BlueZ on Linux, CoreBluetooth on macOS).
 btleplug = { workspace = true }
 futures = { workspace = true }
+# Opus decoder for local transcription (libopus built statically, no system library).
+opus = { workspace = true }
 # Unlock secret: parses the user's private key.
 rsa = { workspace = true }
 
