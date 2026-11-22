@@ -290,6 +290,105 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn diarization_roundtrip_and_replace() {
+        use liberarr_core::diarization::{Diarization, DiarizationRepo, SpeakerTurn};
+        let t = TempDb::new("diarization");
+        let db = Db::open(&t.path()).unwrap();
+        let id = db.add(new_rec("h1")).await.unwrap();
+        assert!(DiarizationRepo::get(&db, id).await.unwrap().is_none());
+
+        let turn = |start, end, speaker| SpeakerTurn {
+            start,
+            end,
+            speaker,
+        };
+        let first = Diarization {
+            turns: vec![turn(0.0, 1.5, 0), turn(1.5, 4.25, 1)],
+            engine: "e1".into(),
+        };
+        DiarizationRepo::save(&db, id, &first).await.unwrap();
+        assert_eq!(DiarizationRepo::get(&db, id).await.unwrap(), Some(first));
+
+        let second = Diarization {
+            turns: vec![turn(0.0, 9.0, 0)],
+            engine: "e2".into(),
+        };
+        DiarizationRepo::save(&db, id, &second).await.unwrap();
+        assert_eq!(DiarizationRepo::get(&db, id).await.unwrap(), Some(second));
+    }
+
+    /// Speakers are renumbered on each run: names of the old numbering must not stick to the new.
+    #[tokio::test]
+    async fn new_turns_reset_names() {
+        use liberarr_core::diarization::{Diarization, DiarizationRepo, SpeakerTurn};
+        let t = TempDb::new("diarization-names");
+        let db = Db::open(&t.path()).unwrap();
+        let id = db.add(new_rec("h1")).await.unwrap();
+        let d = |end| Diarization {
+            turns: vec![SpeakerTurn {
+                start: 0.0,
+                end,
+                speaker: 0,
+            }],
+            engine: "e".into(),
+        };
+        DiarizationRepo::save(&db, id, &d(2.0)).await.unwrap();
+        db.set_name(id, 0, Some("Ana")).await.unwrap();
+
+        DiarizationRepo::save(&db, id, &d(2.0)).await.unwrap(); // identical turns
+        assert_eq!(db.names(id).await.unwrap().get(&0).unwrap(), "Ana");
+
+        DiarizationRepo::save(&db, id, &d(3.0)).await.unwrap();
+        assert!(db.names(id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn requested_speakers_survive_a_save() {
+        use liberarr_core::diarization::{Diarization, DiarizationRepo};
+        let t = TempDb::new("diarization-count");
+        let db = Db::open(&t.path()).unwrap();
+        let id = db.add(new_rec("h1")).await.unwrap();
+        assert_eq!(db.requested_speakers(id).await.unwrap(), None);
+        db.set_requested_speakers(id, Some(3)).await.unwrap();
+        assert_eq!(db.requested_speakers(id).await.unwrap(), Some(3));
+
+        let d = Diarization {
+            turns: vec![],
+            engine: "e".into(),
+        };
+        DiarizationRepo::save(&db, id, &d).await.unwrap();
+        assert_eq!(db.requested_speakers(id).await.unwrap(), Some(3));
+
+        db.set_requested_speakers(id, None).await.unwrap();
+        assert_eq!(db.requested_speakers(id).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn speaker_names_are_per_recording_and_blank_resets() {
+        use liberarr_core::diarization::DiarizationRepo;
+        let t = TempDb::new("diarization-rename");
+        let db = Db::open(&t.path()).unwrap();
+        let (a, b) = (
+            db.add(new_rec("h1")).await.unwrap(),
+            db.add(new_rec("h2")).await.unwrap(),
+        );
+        db.set_name(a, 0, Some("Ana")).await.unwrap();
+        db.set_name(a, 0, Some("Anaïs")).await.unwrap(); // upsert
+        db.set_name(a, 1, Some("Bob")).await.unwrap();
+        db.set_name(b, 0, Some("Zed")).await.unwrap();
+        assert_eq!(
+            db.names(a).await.unwrap(),
+            [(0, "Anaïs".to_string()), (1, "Bob".to_string())].into()
+        );
+        assert_eq!(db.names(b).await.unwrap().len(), 1);
+
+        db.set_name(a, 0, Some("  ")).await.unwrap();
+        db.set_name(a, 1, None).await.unwrap();
+        assert!(db.names(a).await.unwrap().is_empty());
+        assert_eq!(db.names(b).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
     async fn claim_is_exclusive_across_connections() {
         let t = TempDb::new("claim");
         let (a, b) = (Db::open(&t.path()).unwrap(), Db::open(&t.path()).unwrap());

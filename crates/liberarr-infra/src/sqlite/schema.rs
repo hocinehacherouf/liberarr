@@ -3,7 +3,8 @@ use super::storage;
 use liberarr_core::{Error, Result};
 use rusqlite::{Connection, TransactionBehavior};
 
-pub(super) const MIGRATIONS: &[&str] = &["
+pub(super) const MIGRATIONS: &[&str] = &[
+    "
 CREATE TABLE recordings (
     id          INTEGER PRIMARY KEY,
     title       TEXT,
@@ -49,7 +50,25 @@ CREATE TABLE device_sessions (
     pulled_at    TEXT NOT NULL,
     PRIMARY KEY (serial_hash, session_id)
 );
-"];
+",
+    "
+CREATE TABLE diarizations (
+    recording_id INTEGER PRIMARY KEY REFERENCES recordings(id),
+    engine       TEXT NOT NULL,
+    turns        TEXT NOT NULL
+);
+CREATE TABLE speaker_settings (
+    recording_id        INTEGER PRIMARY KEY REFERENCES recordings(id),
+    requested_speakers  INTEGER
+);
+CREATE TABLE speaker_names (
+    recording_id INTEGER NOT NULL REFERENCES recordings(id),
+    speaker      INTEGER NOT NULL,
+    name         TEXT NOT NULL,
+    PRIMARY KEY (recording_id, speaker)
+);
+",
+];
 
 /// Applies the pending migrations in one `BEGIN IMMEDIATE` transaction. The version is re-read
 /// inside it, so two processes opening the same file never both apply a migration.
