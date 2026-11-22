@@ -52,27 +52,9 @@ pub fn frontmatter(r: &Recording, tz: &TimeZone) -> String {
     )
 }
 
-pub fn render_block(t: &Transcript, s: &MeetingSummary, lang: Language) -> String {
+/// Without a summary only the transcript section is written, so a note exists before (or without) an AI run.
+pub fn render_block(t: &Transcript, s: Option<&MeetingSummary>, lang: Language) -> String {
     let l = lang.note_labels();
-    let actions: Vec<String> = s
-        .actions
-        .iter()
-        .map(|a| {
-            let parts: Vec<&str> = [
-                Some(a.action.as_str()),
-                a.owner.as_deref(),
-                a.due.as_deref(),
-            ]
-            .into_iter()
-            .flatten()
-            .collect();
-            format!(
-                "- [{}] {}",
-                if a.done { "x" } else { " " },
-                parts.join(" — ")
-            )
-        })
-        .collect();
     let transcript: Vec<String> = if t.has_timestamps {
         t.segments
             .iter()
@@ -81,23 +63,46 @@ pub fn render_block(t: &Transcript, s: &MeetingSummary, lang: Language) -> Strin
     } else {
         vec![t.text.clone()]
     };
-    let mut lines = vec![
-        format!("## {}", l.summary),
-        s.summary_md.trim().into(),
-        String::new(),
-        format!("## {}", l.mindmap),
-        "```mermaid".into(),
-        s.mindmap.trim().into(),
-        "```".into(),
-        String::new(),
-        format!("## {}", l.actions),
-    ];
-    lines.extend(if actions.is_empty() {
-        vec![format!("_{}_", l.no_actions)]
-    } else {
-        actions
-    });
-    lines.extend([String::new(), format!("## {}", l.transcript)]);
+    let mut lines = Vec::new();
+    if let Some(s) = s {
+        let actions: Vec<String> = s
+            .actions
+            .iter()
+            .map(|a| {
+                let parts: Vec<&str> = [
+                    Some(a.action.as_str()),
+                    a.owner.as_deref(),
+                    a.due.as_deref(),
+                ]
+                .into_iter()
+                .flatten()
+                .collect();
+                format!(
+                    "- [{}] {}",
+                    if a.done { "x" } else { " " },
+                    parts.join(" — ")
+                )
+            })
+            .collect();
+        lines.extend([
+            format!("## {}", l.summary),
+            s.summary_md.trim().into(),
+            String::new(),
+            format!("## {}", l.mindmap),
+            "```mermaid".into(),
+            s.mindmap.trim().into(),
+            "```".into(),
+            String::new(),
+            format!("## {}", l.actions),
+        ]);
+        lines.extend(if actions.is_empty() {
+            vec![format!("_{}_", l.no_actions)]
+        } else {
+            actions
+        });
+        lines.push(String::new());
+    }
+    lines.push(format!("## {}", l.transcript));
     lines.extend(transcript);
     // LLM and transcript text must not close or reopen the block: strip both markers, repeating
     // because a removal can join the surrounding text into a new marker.
@@ -167,11 +172,7 @@ impl<R: RecordingRepo, T: TranscriptRepo, S: SummaryRepo, N: NoteStore>
         if !t.has_speech() {
             return Ok(None);
         }
-        let s = self
-            .summaries
-            .get(recording_id)
-            .await?
-            .ok_or_else(|| Error::NotFound("summary".into()))?;
+        let s = self.summaries.get(recording_id).await?;
         // `join` keeps a legacy absolute value working.
         let path = match rec.export_path.clone() {
             Some(name) => self.vault.join(name),
@@ -179,7 +180,14 @@ impl<R: RecordingRepo, T: TranscriptRepo, S: SummaryRepo, N: NoteStore>
                 // shortcut: check-then-write is not atomic, so two exports of the same name at the
                 // same time (serve, tui and process share the DB) can both see it free and the second
                 // block replaces the first. Upgrade to an atomic create (`create_new`) in `NoteStore`.
-                let mut name = note_filename(&rec, &s.title, &self.tz);
+                let mut name = note_filename(
+                    &rec,
+                    s.as_ref()
+                        .map(|s| s.title.as_str())
+                        .or(rec.title.as_deref())
+                        .unwrap_or(""),
+                    &self.tz,
+                );
                 if self.notes.read(&self.vault.join(&name))?.is_some() {
                     name = format!(
                         "{} ({}).md",
@@ -196,7 +204,7 @@ impl<R: RecordingRepo, T: TranscriptRepo, S: SummaryRepo, N: NoteStore>
         };
         let text = upsert_block(
             self.notes.read(&path)?.as_deref(),
-            &render_block(&t, &s, self.lang),
+            &render_block(&t, s.as_ref(), self.lang),
             &frontmatter(&rec, &self.tz),
         );
         self.notes.write_atomic(&path, &text)?;
@@ -269,7 +277,7 @@ mod tests {
     fn markers_in_generated_text_do_not_split_the_block() {
         let mut s = summary();
         s.summary_md = format!("a {END} b {START} c %% liberarr:st{END}art %%");
-        let block = render_block(&transcript(), &s, Language::En);
+        let block = render_block(&transcript(), Some(&s), Language::En);
         assert_eq!(
             (block.matches(START).count(), block.matches(END).count()),
             (1, 1)
@@ -384,6 +392,79 @@ mod tests {
         );
     }
 
+    fn export_fixture() -> (MemRecordings, MemTranscripts, MemSummaries, MemNotes) {
+        (
+            MemRecordings::default(),
+            MemTranscripts::default(),
+            MemSummaries::default(),
+            MemNotes::default(),
+        )
+    }
+
+    #[test]
+    fn export_without_summary_writes_transcript_only() {
+        let (recs, transcripts, summaries, notes) = export_fixture();
+        let id = block_on(recs.add(NewRecording {
+            title: Some("Point équipe".into()),
+            ..new_rec("2026-06-02T14:05:00Z")
+        }))
+        .unwrap();
+        block_on(transcripts.save(id, &transcript())).unwrap();
+        let uc = ExportToObsidian {
+            recordings: &recs,
+            transcripts: &transcripts,
+            summaries: &summaries,
+            notes: &notes,
+            vault: "/vault".into(),
+            tz: TimeZone::UTC,
+            lang: Language::Fr,
+        };
+        let path = block_on(uc.run(id)).unwrap().unwrap();
+        assert!(path.to_string_lossy().ends_with("- Point équipe.md"));
+        let note = notes.read(&path).unwrap().unwrap();
+        let l = Language::Fr.note_labels();
+        assert!(note.contains(START));
+        assert!(note.contains(&format!("## {}", l.transcript)));
+        assert!(note.contains("[01:05] salut"));
+        assert!(!note.contains(&format!("## {}", l.summary)));
+    }
+
+    #[test]
+    fn export_without_summary_then_with_summary() {
+        let (recs, transcripts, summaries, notes) = export_fixture();
+        let id = block_on(recs.add(new_rec("2026-06-02T14:05:00Z"))).unwrap();
+        block_on(transcripts.save(id, &transcript())).unwrap();
+        let uc = ExportToObsidian {
+            recordings: &recs,
+            transcripts: &transcripts,
+            summaries: &summaries,
+            notes: &notes,
+            vault: "/vault".into(),
+            tz: TimeZone::UTC,
+            lang: Language::Fr,
+        };
+        let first = block_on(uc.run(id)).unwrap().unwrap();
+        let before = notes.read(&first).unwrap().unwrap();
+        block_on(summaries.save(
+            id,
+            &MeetingSummary {
+                title: "Autre titre".into(),
+                ..summary()
+            },
+        ))
+        .unwrap();
+        let second = block_on(uc.run(id)).unwrap().unwrap();
+        assert_eq!(first, second);
+        let after = notes.read(&second).unwrap().unwrap();
+        assert!(after.contains(&format!("## {}", Language::Fr.note_labels().summary)));
+        assert!(after.contains("## Contexte"));
+        let outside = |t: &str| {
+            let (a, b) = (t.find(START).unwrap(), t.find(END).unwrap() + END.len());
+            format!("{}{}", &t[..a], &t[b..])
+        };
+        assert_eq!(outside(&before), outside(&after));
+    }
+
     #[test]
     fn export_without_speech_is_a_no_op() {
         let recs = MemRecordings::default();
@@ -408,7 +489,7 @@ mod tests {
             tz: TimeZone::UTC,
             lang: Language::Fr,
         };
-        // No summary exists: a rerun of the export must not fail on it, nor write a note.
+        // Silence beats a missing summary: nothing is written.
         assert_eq!(block_on(uc.run(id)).unwrap(), None);
         assert!(notes.0.borrow().is_empty());
         assert_eq!(recs.0.borrow()[0].export_path, None);
