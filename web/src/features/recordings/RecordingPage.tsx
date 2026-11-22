@@ -1,51 +1,57 @@
-import { useCallback, useRef, type ReactNode } from 'react'
+import { ArrowLeftIcon, CircleCheckIcon, CircleDashedIcon, CircleXIcon, DownloadIcon, LoaderCircleIcon, MicOffIcon, TriangleAlertIcon } from 'lucide-react'
+import { useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
 import { Link, useParams } from 'react-router'
-import { Loading } from '../../shared/Loading'
-import { ApiError } from '../../shared/api'
-import { CopyButton } from '../../shared/CopyButton'
-import { formatDate, formatTimestamp } from '../../shared/time'
-import { ActionsTable } from '../summaries/ActionsTable'
-import { Mindmap } from '../summaries/Mindmap'
-import { TranscriptView } from '../transcription/TranscriptView'
-import { downloadText, transcriptCopyText, transcriptFileName, transcriptFileText } from '../transcription/text'
-import { useRecording, useRenameSpeaker, useRerun, useSpeakerCount, type Job } from './api'
-import { StatusBadge } from './StatusBadge'
+import { toast } from 'sonner'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { recordingTitle } from '@/features/recordings/title'
+import { ApiError } from '@/shared/api'
+import { CopyButton } from '@/shared/CopyButton'
+import { formatDate, formatTimestamp } from '@/shared/time'
+import { ActionsTable } from '@/features/summaries/ActionsTable'
+import { Mindmap } from '@/features/summaries/Mindmap'
+import { TranscriptView } from '@/features/transcription/TranscriptView'
+import { downloadText, transcriptCopyText, transcriptFileName, transcriptFileText } from '@/features/transcription/text'
+import { useRecording, useRenameSpeaker, useRerun, useSpeakerCount, type Job } from '@/features/recordings/api'
+import { AudioBar } from '@/features/recordings/AudioBar'
+import { RecordingMenu } from '@/features/recordings/RecordingMenu'
+import { StatusBadge } from '@/features/recordings/StatusBadge'
 
-// Glyph and color of a pipeline step, as in the terminal app: the glyph alone tells the state.
-const JOB: Record<Job['status'], [string, string]> = {
-  done: ['✓', 'text-ok'],
-  failed: ['✕', 'text-err'],
-  running: ['◌', 'text-accent motion-safe:animate-pulse'],
-  queued: ['·', 'text-muted'],
+// An icon per pipeline step state: the shape tells the state apart without the color.
+const JOB: Record<Job['status'], { Icon: typeof CircleCheckIcon; className: string }> = {
+  done: { Icon: CircleCheckIcon, className: 'text-success' },
+  failed: { Icon: CircleXIcon, className: 'text-destructive' },
+  running: { Icon: LoaderCircleIcon, className: 'text-primary motion-safe:animate-spin' },
+  queued: { Icon: CircleDashedIcon, className: 'text-muted-foreground' },
 }
-const RERUN_STEPS = ['transcribe', 'summarize', 'diarize', 'export'] as const
 const MAX_SPEAKER_CHOICE = 10
+const AUTOMATIC = 'auto'
 
-/** A pane of the page: rounded border, its title on top. */
-function Pane({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="rounded-xl border border-line bg-surface p-4 sm:p-5">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold tracking-wide text-accent uppercase">{title}</h2>
-        {actions && <div className="flex items-center gap-2">{actions}</div>}
-      </div>
-      {children}
-    </section>
-  )
+/** Keyed by id: no state (errors, playback time, open forms) carries over from one recording to the next. */
+export function RecordingPage() {
+  const id = Number(useParams().id)
+  return <RecordingContent key={id} id={id} />
 }
 
-export function RecordingPage() {
+function RecordingContent({ id }: { id: number }) {
   const { t } = useTranslation()
-  const id = Number(useParams().id)
-  const { data: rec, isLoading, isError } = useRecording(id)
+  const { data: rec, isLoading } = useRecording(id)
   const rerun = useRerun(id)
   const speakerCount = useSpeakerCount(id)
   const { mutateAsync: renameSpeaker } = useRenameSpeaker(id)
   // Stable, so the memoised transcript rows do not re-render with the page.
   const onRename = useCallback((speaker: number, name: string) => renameSpeaker({ speaker, name }), [renameSpeaker])
   const audio = useRef<HTMLAudioElement>(null)
+  const [tab, setTab] = useState<string | null>(null)
 
   const seek = (seconds: number) => {
     if (!audio.current) return
@@ -54,207 +60,250 @@ export function RecordingPage() {
   }
 
   const back = (
-    <Link to="/" className="rounded text-sm text-muted underline-offset-2 hover:text-fg hover:underline">
+    <Button variant="ghost" size="sm" nativeButton={false} render={<Link to="/" />} className="-ml-2.5 max-md:h-11">
+      <ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
       {t('recordings.back')}
-    </Link>
+    </Button>
   )
-  if (isLoading) return <Loading className="mx-auto max-w-5xl px-4 py-8" />
-  if (isError || !rec)
+  if (isLoading)
     return (
-      <main className="mx-auto max-w-5xl space-y-4 px-4 py-8">
+      <div role="status" aria-label={t('common.loading')} className="mx-auto w-full max-w-5xl space-y-4 px-4 py-6 sm:py-8">
+        <Skeleton className="h-8 w-24" />
+        <Skeleton className="h-8 w-2/3" />
+        <Skeleton className="h-5 w-1/2" />
+        <Skeleton className="h-9 w-72 max-w-full" />
+        <Skeleton className="h-64" />
+      </div>
+    )
+  // Only without data: a failed background refresh keeps the page (and the audio bar) on screen.
+  if (!rec)
+    return (
+      <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-6 sm:py-8">
         {back}
-        <p role="alert" className="rounded-lg border border-err/40 bg-err/10 p-4 text-sm text-err">
-          {t('recordings.notFound')}
-        </p>
-      </main>
+        <Alert variant="destructive">
+          <AlertDescription>{t('recordings.notFound')}</AlertDescription>
+        </Alert>
+      </div>
     )
 
+  const processing = rec.status === 'processing'
   const failedStep = rec.status === 'failed' ? rec.failed_step : null
   const failedJob = failedStep ? rec.jobs.findLast((j) => j.step === failedStep) : undefined
-  const rerunDetail = rerun.error instanceof ApiError ? rerun.error.message : ''
-  // The server refuses a summary rerun (409) when `liberarr init` chose no engine.
-  const noEngine = rerun.error instanceof ApiError && rerun.error.status === 409 && rerun.variables === 'summarize'
-  // 409: a step is running, or speaker detection is off.
-  const countRefused = speakerCount.error instanceof ApiError && speakerCount.error.status === 409
   const requested = rec.speakers.requested
   const speakerName = (n: number) => rec.speakers.names[n] ?? t('speakers.label', { n: n + 1 })
   // The latest job of each step, in the order the steps first ran.
   const steps = [...new Set(rec.jobs.map((j) => j.step))].map((step) => rec.jobs.findLast((j) => j.step === step)!)
+  const title = rec.summary?.title ?? recordingTitle(rec, t)
+  const speakerChoices = [
+    AUTOMATIC,
+    ...Array.from({ length: Math.max(MAX_SPEAKER_CHOICE, requested ?? 0) }, (_, i) => String(i + 1)),
+  ]
+
+  const rerunStep = (step: string) =>
+    rerun.mutate(step, {
+      onError: (e) => {
+        const detail = e instanceof ApiError ? e.message : ''
+        // The server refuses a summary rerun (409) when `liberarr init` chose no engine.
+        const noEngine = e instanceof ApiError && e.status === 409 && step === 'summarize'
+        toast.error(
+          noEngine
+            ? t('recordings.noSummaryEngine')
+            : t(detail ? 'recordings.retryErrorWithDetail' : 'recordings.retryError', { error: detail }),
+        )
+      },
+    })
+  const setSpeakerCount = (value: string | null) =>
+    speakerCount.mutate(value == null || value === AUTOMATIC ? null : Number(value), {
+      // 409: a step is running, or speaker detection is off.
+      onError: (e) => toast.error(t(e instanceof ApiError && e.status === 409 ? 'speakers.countRefused' : 'speakers.countError')),
+    })
+
+  // An empty transcript (a recording with no speech) gets no tab and no speaker-count control.
+  const transcript = rec.transcript && (rec.transcript.segments.length > 0 || rec.transcript.text.trim() !== '') ? rec.transcript : null
+  // A tab exists only when its data does; the first one is the default.
+  const tabs = [
+    rec.summary && 'summary',
+    transcript && 'transcript',
+    rec.summary && 'actions',
+    rec.summary && 'mindmap',
+  ].filter((v): v is string => !!v)
+  const active = tab && tabs.includes(tab) ? tab : tabs[0]
 
   return (
-    <main className="mx-auto max-w-5xl space-y-4 px-4 py-6 sm:py-8">
-      <div className="space-y-2">
-        {back}
-        <h1 className="text-2xl font-semibold tracking-tight text-balance">
-          {rec.summary?.title ?? rec.title ?? t('recordings.untitled', { id: rec.id })}
-        </h1>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted">
-          <StatusBadge recording={rec} />
-          <time dateTime={rec.created_at}>{formatDate(rec.created_at)}</time>
-          {rec.duration_s != null && <span className="font-mono tabular-nums">{formatTimestamp(rec.duration_s)}</span>}
-          {steps.length > 0 && (
-            <ol aria-label={t('recordings.pipeline')} className="flex flex-wrap items-center gap-x-2 font-mono text-xs">
-              {steps.map((j, i) => (
-                <li key={j.step} className="flex items-center gap-2">
-                  {i > 0 && <span aria-hidden="true" className="text-line">──</span>}
-                  <span className={JOB[j.status][1]} aria-hidden="true">
-                    {JOB[j.status][0]}
-                  </span>
-                  <span className="text-fg">{t(`recordings.steps.${j.step}`, { defaultValue: j.step })}</span>
-                  <span className="sr-only">{t(`recordings.jobStatus.${j.status}`)}</span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
-      </div>
-
-      {failedStep && (
-        <div
-          role="alert"
-          className="flex flex-wrap items-center gap-3 rounded-lg border border-err/40 bg-err/10 p-4 text-sm"
-        >
-          <span aria-hidden="true" className="text-err">
-            ▲
-          </span>
-          <span className="flex-1">
-            {t(failedJob?.error ? 'recordings.stepFailedWithError' : 'recordings.stepFailed', {
-              step: t(`recordings.steps.${failedStep}`, { defaultValue: failedStep }),
-              error: failedJob?.error,
-            })}
-          </span>
-          <button
-            onClick={() => rerun.mutate(failedStep)}
-            disabled={rerun.isPending}
-            className="bg-brand-strong rounded-md px-3 py-1.5 font-semibold text-white hover:brightness-110 disabled:opacity-60"
-          >
-            {t('recordings.retry')}
-          </button>
-        </div>
-      )}
-      {rec.status !== 'processing' && (
-        <fieldset disabled={rerun.isPending} aria-describedby="rerun-help" className="min-w-0 space-y-2">
-          <legend className="font-semibold">{t('recordings.rerunTitle')}</legend>
-          <p id="rerun-help" className="text-sm text-muted">{t('recordings.rerunHelp')}</p>
-          <div className="flex flex-wrap gap-2">
-            {RERUN_STEPS.map((step) => (
-              <button
-                key={step}
-                type="button"
-                onClick={() => rerun.mutate(step)}
-                className="min-h-11 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-semibold hover:text-accent disabled:opacity-60"
-              >
-                {t('recordings.rerunStep', { step: t(`recordings.steps.${step}`) })}
-              </button>
-            ))}
+    <div className="flex flex-1 flex-col">
+      <div className="mx-auto w-full max-w-5xl flex-1 space-y-4 px-4 pt-6 pb-8 sm:pt-8">
+        <div className="space-y-2">
+          {back}
+          <div className="flex items-start justify-between gap-2">
+            <h1 className="min-w-0 text-2xl font-semibold tracking-tight text-balance wrap-break-word">{title}</h1>
+            <RecordingMenu id={id} disabled={processing || rerun.isPending} onRerun={rerunStep} />
           </div>
-        </fieldset>
-      )}
-      {rerun.isError && (
-        <p role="alert" className="text-sm text-err">
-          {noEngine
-            ? t('recordings.noSummaryEngine')
-            : t(rerunDetail ? 'recordings.retryErrorWithDetail' : 'recordings.retryError', { error: rerunDetail })}
-        </p>
-      )}
-      {rec.status !== 'processing' && rec.transcript?.has_timestamps && (
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <label htmlFor="speaker-count" className="font-semibold">
-            {t('speakers.count')}
-          </label>
-          <select
-            id="speaker-count"
-            value={requested ?? ''}
-            disabled={speakerCount.isPending}
-            onChange={(e) => speakerCount.mutate(e.target.value === '' ? null : Number(e.target.value))}
-            className="min-h-11 rounded-md border border-line bg-surface px-2 py-1.5"
-          >
-            <option value="">{t('speakers.automatic')}</option>
-            {Array.from({ length: Math.max(MAX_SPEAKER_CHOICE, requested ?? 0) }, (_, i) => (
-              <option key={i + 1} value={i + 1}>
-                {i + 1}
-              </option>
-            ))}
-          </select>
-          <span className="text-muted">{t('speakers.countHelp')}</span>
-          {speakerCount.isError && (
-            <span role="alert" className="text-err">
-              {t(countRefused ? 'speakers.countRefused' : 'speakers.countError')}
-            </span>
-          )}
-        </div>
-      )}
-      {rec.status === 'processing' && (
-        <p role="status" className="flex items-center gap-2 rounded-lg border border-accent/40 bg-accent/10 p-4 text-sm text-accent">
-          <span aria-hidden="true" className="motion-safe:animate-pulse">
-            ◌
-          </span>
-          {t('recordings.processing')}
-        </p>
-      )}
-
-      {rec.no_speech && (
-        <p role="status" className="rounded-lg border border-dashed border-line p-4 text-sm text-muted">
-          {t('recordings.noSpeechDetail')}
-        </p>
-      )}
-
-      {/* Sticky under the header, so the transcript and the action times stay playable. */}
-      <div className="sticky top-14 z-10 -mx-1 rounded-full bg-canvas/90 p-1 backdrop-blur">
-        <audio ref={audio} controls src={`/api/recordings/${id}/audio`} className="block w-full" />
-      </div>
-
-      {rec.summary && (
-        <>
-          <Pane
-            title={t('summaries.summary')}
-            actions={<CopyButton text={rec.summary.summary_md} label={t('summaries.copy')} />}
-          >
-            {/* No raw HTML (react-markdown default) and no images: a remote URL in LLM output would leak. */}
-            <div className="space-y-2 leading-relaxed [&_a]:text-accent [&_a]:underline [&_h1]:mt-4 [&_h1]:font-semibold [&_h1]:text-accent [&_h1:first-child]:mt-0 [&_h2]:mt-4 [&_h2]:font-semibold [&_h2]:text-accent [&_h2:first-child]:mt-0 [&_h3]:mt-3 [&_h3]:font-semibold [&_li]:ml-5 [&_li::marker]:text-muted [&_ol]:list-decimal [&_ul]:list-disc">
-              <Markdown disallowedElements={['img']}>{rec.summary.summary_md}</Markdown>
-            </div>
-          </Pane>
-          <Pane title={t('summaries.mindmap')}>
-            <Mindmap code={rec.summary.mindmap} />
-          </Pane>
-          <Pane title={t('summaries.actions.title')}>
-            <ActionsTable recordingId={id} actions={rec.summary.actions} onSeek={seek} />
-          </Pane>
-        </>
-      )}
-
-      {rec.transcript && (
-        <Pane
-          title={t('transcription.title')}
-          actions={
-            <>
-              <CopyButton text={transcriptCopyText(rec.transcript, speakerName)} label={t('transcription.copy')} />
-              <button
-                type="button"
-                aria-label={t('transcription.download')}
-                onClick={() =>
-                  downloadText(
-                    transcriptFileText(rec.transcript!, speakerName),
-                    transcriptFileName(rec.summary?.title ?? rec.title, rec.id),
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted-foreground">
+            <StatusBadge recording={rec} />
+            <time dateTime={rec.created_at}>{formatDate(rec.created_at)}</time>
+            {rec.duration_s != null && <span className="tabular-nums">{formatTimestamp(rec.duration_s)}</span>}
+            {steps.length > 0 && (
+              <ol aria-label={t('recordings.pipeline')} className="flex flex-wrap items-center gap-1.5">
+                {steps.map((j) => {
+                  const { Icon, className } = JOB[j.status]
+                  return (
+                    <li key={j.step}>
+                      <Badge variant="outline">
+                        <Icon aria-hidden="true" className={className} />
+                        {t(`recordings.steps.${j.step}`, { defaultValue: j.step })}
+                        <span className="sr-only">{t(`recordings.jobStatus.${j.status}`)}</span>
+                      </Badge>
+                    </li>
                   )
-                }
-                className="rounded-md border border-line bg-surface px-3 py-1 text-sm font-semibold hover:text-accent"
-              >
-                {t('transcription.downloadShort')}
-              </button>
-            </>
-          }
-        >
-          <TranscriptView
-            transcript={rec.transcript}
-            speakerName={speakerName}
-            onRename={onRename}
-            audio={audio}
-            onSeek={seek}
-          />
-        </Pane>
-      )}
-    </main>
+                })}
+              </ol>
+            )}
+          </div>
+        </div>
+
+        {failedStep && (
+          <Alert variant="destructive">
+            <TriangleAlertIcon aria-hidden="true" />
+            <AlertTitle>
+              {t(failedJob?.error ? 'recordings.stepFailedWithError' : 'recordings.stepFailed', {
+                step: t(`recordings.steps.${failedStep}`, { defaultValue: failedStep }),
+                error: failedJob?.error,
+              })}
+            </AlertTitle>
+            <div className="col-start-2 mt-2">
+              <Button variant="outline" size="sm" disabled={rerun.isPending} onClick={() => rerunStep(failedStep)} className="max-md:h-11">
+                {t('recordings.retry')}
+              </Button>
+            </div>
+          </Alert>
+        )}
+        {processing && (
+          <Alert role="status">
+            {/* The alert is the status: the spinner is decoration. */}
+            <Spinner aria-hidden="true" role="presentation" className="animate-none motion-safe:animate-spin" />
+            <AlertTitle>{t('recordings.processing')}</AlertTitle>
+          </Alert>
+        )}
+        {rec.no_speech && (
+          <Alert role="status">
+            <MicOffIcon aria-hidden="true" />
+            <AlertDescription>{t('recordings.noSpeechDetail')}</AlertDescription>
+          </Alert>
+        )}
+
+        {active && (
+          <Tabs value={active} onValueChange={setTab}>
+            <TabsList className="max-w-full justify-start overflow-x-auto group-data-horizontal/tabs:max-md:h-11!">
+              {tabs.map((value) => (
+                <TabsTrigger key={value} value={value}>
+                  {t(
+                    {
+                      summary: 'summaries.summary',
+                      transcript: 'transcription.title',
+                      actions: 'summaries.actions.title',
+                      mindmap: 'summaries.mindmap',
+                    }[value]!,
+                  )}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {rec.summary && (
+              <>
+                <TabsContent value="summary">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>{t('summaries.summary')}</CardTitle>
+                      <CardAction>
+                        <CopyButton text={rec.summary.summary_md} label={t('summaries.copy')} />
+                      </CardAction>
+                    </CardHeader>
+                    <CardContent>
+                      {/* No raw HTML (react-markdown default) and no images: a remote URL in LLM output would leak. */}
+                      <div className="space-y-2 text-base leading-relaxed [&_a]:text-primary [&_a]:underline [&_h1]:mt-4 [&_h1]:font-semibold [&_h1]:text-primary [&_h1:first-child]:mt-0 [&_h2]:mt-4 [&_h2]:font-semibold [&_h2]:text-primary [&_h2:first-child]:mt-0 [&_h3]:mt-3 [&_h3]:font-semibold [&_li]:ml-5 [&_li::marker]:text-muted-foreground [&_ol]:list-decimal [&_ul]:list-disc">
+                        <Markdown disallowedElements={['img']}>{rec.summary.summary_md}</Markdown>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="actions">
+                  <Card>
+                    <CardContent>
+                      <ActionsTable recordingId={id} actions={rec.summary.actions} onSeek={seek} />
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="mindmap">
+                  <Card>
+                    <CardContent>
+                      <Mindmap code={rec.summary.mindmap} />
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </>
+            )}
+            {transcript && (
+              <TabsContent value="transcript">
+                <Card>
+                  <CardContent className="space-y-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {!processing && transcript.has_timestamps && (
+                        <>
+                          <Label htmlFor="speaker-count">{t('speakers.count')}</Label>
+                          <Select
+                            value={requested == null ? AUTOMATIC : String(requested)}
+                            onValueChange={setSpeakerCount}
+                            disabled={speakerCount.isPending}
+                          >
+                            <SelectTrigger id="speaker-count" className="data-[size=default]:max-md:h-11">
+                              <SelectValue>
+                                {(value: string) => (value === AUTOMATIC ? t('speakers.automatic') : value)}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {speakerChoices.map((value) => (
+                                <SelectItem key={value} value={value}>
+                                  {value === AUTOMATIC ? t('speakers.automatic') : value}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <span className="text-sm text-muted-foreground">{t('speakers.countHelp')}</span>
+                        </>
+                      )}
+                      <div className="ml-auto flex items-center gap-2">
+                        <CopyButton text={transcriptCopyText(transcript, speakerName)} label={t('transcription.copy')} />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          aria-label={t('transcription.download')}
+                          className="max-md:h-11"
+                          onClick={() =>
+                            downloadText(
+                              transcriptFileText(transcript, speakerName),
+                              transcriptFileName(rec.summary?.title ?? rec.title, rec.id),
+                            )
+                          }
+                        >
+                          <DownloadIcon data-icon="inline-start" aria-hidden="true" />
+                          {t('transcription.downloadShort')}
+                        </Button>
+                      </div>
+                    </div>
+                    <TranscriptView
+                      transcript={transcript}
+                      speakerName={speakerName}
+                      onRename={onRename}
+                      audio={audio}
+                      onSeek={seek}
+                    />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            )}
+          </Tabs>
+        )}
+      </div>
+      <AudioBar audio={audio} src={`/api/recordings/${id}/audio`} durationHint={rec.duration_s} />
+    </div>
   )
 }

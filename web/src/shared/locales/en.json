@@ -1,9 +1,11 @@
 {
   "common": {
     "loading": "Loading…",
+    "search": "Search…",
     "copy": "Copy",
     "copied": "Copied",
-    "copyFailed": "Copy failed: select the text by hand"
+    "copyFailed": "Copy failed: select the text by hand",
+    "notifications": "Notifications"
   },
   "auth": {
     "username": "Username",
@@ -18,7 +20,7 @@
   },
   "recordings": {
     "title": "Recordings",
-    "back": "← Recordings",
+    "back": "Recordings",
     "untitled": "Recording {{id}}",
     "empty": "No recordings yet.",
     "searchByTitle": "Search recordings by title",
@@ -32,7 +34,8 @@
     "retryError": "Unable to retry the step.",
     "retryErrorWithDetail": "Unable to retry the step. {{error}}",
     "noSummaryEngine": "No summary engine is configured. Run `liberarr init` to choose one.",
-    "rerunTitle": "Run a step again",
+    "moreActions": "More actions",
+    "downloadAudio": "Download the audio",
     "rerunHelp": "The steps that follow will run again too.",
     "rerunStep": "Rerun {{step}}",
     "noSpeech": "No speech",
@@ -51,10 +54,17 @@
     },
     "steps": {
       "transcribe": "transcription",
-"diarize": "speakers",
+      "diarize": "speakers",
       "summarize": "summary",
       "export": "export"
     }
+  },
+  "player": {
+    "label": "Audio player",
+    "play": "Play",
+    "pause": "Pause",
+    "position": "Playback position",
+    "speedValue": "Speed: {{rate}}"
   },
   "speakers": {
     "label": "Speaker {{n}}",
@@ -93,5 +103,20 @@
     "downloadShort": "Download",
     "title": "Transcript",
     "noTimestamps": "This provider does not return timestamps"
+  },
+  "sidebar": {
+    "title": "Sidebar",
+    "description": "Navigation between the recordings.",
+    "toggle": "Toggle the sidebar"
+  },
+  "theme": {
+    "title": "Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "palette": {
+    "title": "Command palette",
+    "description": "Search a recording, change the theme or sign out."
   }
 }

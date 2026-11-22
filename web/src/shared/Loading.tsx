@@ -1,11 +1,11 @@
 import { useTranslation } from 'react-i18next'
+import { Spinner } from '@/components/ui/spinner'
 
 export function Loading({ className = '' }: { className?: string }) {
   const { t } = useTranslation()
   return (
-    <p role="status" className={`flex items-center gap-2 text-sm text-muted ${className}`}>
-      <span aria-hidden="true" className="bg-brand size-2 rounded-full motion-safe:animate-pulse" />
-      {t('common.loading')}
-    </p>
+    <div className={className}>
+      <Spinner aria-label={t('common.loading')} className="text-muted-foreground" />
+    </div>
   )
 }

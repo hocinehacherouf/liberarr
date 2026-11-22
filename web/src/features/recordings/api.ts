@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, ApiError } from '../../shared/api'
+import { api, ApiError } from '@/shared/api'
 
 export type Status = 'processing' | 'failed' | 'done'
 

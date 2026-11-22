@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '../../shared/api'
+import { api } from '@/shared/api'
 
 export const useMe = () =>
   useQuery({ queryKey: ['me'], queryFn: () => api<{ username: string }>('/api/auth/me'), retry: false })

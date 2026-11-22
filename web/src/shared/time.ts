@@ -1,4 +1,4 @@
-import i18n from './i18n'
+import i18n from '@/shared/i18n'
 
 /** `created_at` is RFC3339 (`2026-11-07T10:00:00Z`): `Date` parses it natively. */
 export function formatDate(rfc3339: string): string {

@@ -1,5 +1,5 @@
-import { formatTimestamp } from '../../shared/time'
-import type { Segment, Transcript } from '../recordings/api'
+import { formatTimestamp } from '@/shared/time'
+import type { Segment, Transcript } from '@/features/recordings/api'
 
 /** "Alice: " before the text of a segment with a known speaker; `speaker` gives the display name. */
 const who = (s: Segment, speaker: (n: number) => string) => (s.speaker == null ? '' : `${speaker(s.speaker)}: `)

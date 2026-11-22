@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
 // Fixed list, picked by speaker index: the same speaker keeps the same colour on every row.
 const COLORS = [
@@ -27,7 +30,6 @@ export function SpeakerLabel({
   const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState('')
-  const [failed, setFailed] = useState(false)
   const [pending, setPending] = useState(false)
   const button = useRef<HTMLButtonElement>(null)
   const wasEditing = useRef(false)
@@ -43,12 +45,11 @@ export function SpeakerLabel({
     // The unedited default label ("Speaker 1") must not be stored as a name.
     if (name === label) return setEditing(false)
     setPending(true)
-    setFailed(false)
     try {
       await onRename(speaker, name)
       setEditing(false)
     } catch {
-      setFailed(true)
+      toast.error(t('speakers.renameError'))
     } finally {
       setPending(false)
     }
@@ -56,19 +57,20 @@ export function SpeakerLabel({
 
   if (!editing)
     return (
-      <button
+      <Button
         ref={button}
         type="button"
+        variant="ghost"
+        size="xs"
         title={t('speakers.rename')}
         onClick={() => {
           setName(label)
-          setFailed(false)
           setEditing(true)
         }}
-        className={`shrink-0 rounded px-1 font-semibold underline-offset-2 hover:underline ${COLORS[speaker % COLORS.length]}`}
+        className={`shrink-0 font-semibold sm:min-w-20 sm:justify-start ${COLORS[speaker % COLORS.length]}`}
       >
         {label}
-      </button>
+      </Button>
     )
 
   return (
@@ -77,33 +79,20 @@ export function SpeakerLabel({
       onKeyDown={(e) => e.key === 'Escape' && setEditing(false)}
       className="flex flex-wrap items-center gap-1"
     >
-      <input
+      <Input
         autoFocus
         value={name}
         onChange={(e) => setName(e.target.value)}
         maxLength={MAX_NAME}
         aria-label={t('speakers.nameOf', { label })}
-        className="w-36 rounded-md border border-line bg-surface px-2 py-0.5 text-sm"
+        className="h-7 w-36"
       />
-      <button
-        type="submit"
-        disabled={pending}
-        className="rounded-md border border-line bg-surface px-2 py-0.5 text-sm font-semibold hover:text-accent disabled:opacity-60"
-      >
+      <Button type="submit" size="xs" disabled={pending}>
         {t('speakers.save')}
-      </button>
-      <button
-        type="button"
-        onClick={() => setEditing(false)}
-        className="rounded-md border border-line bg-surface px-2 py-0.5 text-sm hover:text-accent"
-      >
+      </Button>
+      <Button type="button" variant="outline" size="xs" onClick={() => setEditing(false)}>
         {t('speakers.cancel')}
-      </button>
-      {failed && (
-        <span role="alert" className="text-sm text-err">
-          {t('speakers.renameError')}
-        </span>
-      )}
+      </Button>
     </form>
   )
 }
