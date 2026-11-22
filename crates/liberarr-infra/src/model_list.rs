@@ -14,8 +14,11 @@ pub async fn list_models(provider: Provider, base_url: &str, api_key: &str) -> R
     let base = base_url.trim_end_matches('/');
     let http = http::client();
     let reply = match provider {
-        Provider::Claude => {
-            return Err(Error::Provider("the claude CLI has no model list".into()));
+        Provider::Claude | Provider::Codex | Provider::Copilot => {
+            return Err(Error::Provider(format!(
+                "the {} CLI has no model list",
+                provider.as_str()
+            )));
         }
         // `/models` is public (it proves nothing about the key) and lists 400+ entries: test the
         // key on `/key` and offer nothing to pick from.

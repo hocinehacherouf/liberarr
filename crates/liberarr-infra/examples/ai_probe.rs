@@ -9,8 +9,8 @@ use liberarr_core::Result;
 use liberarr_core::lang::Language;
 use liberarr_core::summaries::{ChatMessage, Llm, Role, parse_summary, summary_messages};
 use liberarr_core::transcription::{ChunkResult, Segment, Transcriber, Transcript};
+use liberarr_infra::agent_cli::{AgentCli, Preset};
 use liberarr_infra::ai::OpenAiCompat;
-use liberarr_infra::claude_cli::ClaudeCli;
 use liberarr_infra::mistral::MistralTranscriber;
 
 const MISTRAL_BASE: &str = "https://api.mistral.ai/v1";
@@ -123,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match var("PROBE_CLAUDE_CLI") {
         Some(model) => {
-            let llm = ClaudeCli::new(model);
+            let llm = AgentCli::new(Preset::Claude, None, model, Vec::new());
             show_chat("claude-cli/chat", &llm).await;
             show_summary("claude-cli/summary", &llm).await;
         }

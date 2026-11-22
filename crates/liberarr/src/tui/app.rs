@@ -694,6 +694,7 @@ mod tests {
             api_key: String::new(),
             model: "m".into(),
             routing_only: Vec::new(),
+            program: None,
         }
     }
 
@@ -721,6 +722,7 @@ mod tests {
                 content_language: Language::En,
                 content_language_set: false,
                 cookie_secure: false,
+                claude_oauth_token: None,
             })
             .unwrap(),
         );

@@ -12,6 +12,10 @@ pub enum Provider {
     OpenRouter,
     /// The user's logged-in `claude` CLI (subscription), summaries only.
     Claude,
+    /// The user's logged-in `codex` CLI, summaries only.
+    Codex,
+    /// The user's logged-in GitHub `copilot` CLI, summaries only.
+    Copilot,
 }
 
 impl Provider {
@@ -22,6 +26,8 @@ impl Provider {
             "mistral" => Provider::Mistral,
             "openrouter" => Provider::OpenRouter,
             "claude" => Provider::Claude,
+            "codex" => Provider::Codex,
+            "copilot" => Provider::Copilot,
             _ => return None,
         })
     }
@@ -32,12 +38,14 @@ impl Provider {
             Provider::Mistral => "mistral",
             Provider::OpenRouter => "openrouter",
             Provider::Claude => "claude",
+            Provider::Codex => "codex",
+            Provider::Copilot => "copilot",
         }
     }
 
     /// A local command-line tool with its own login, not an HTTP API.
     pub fn is_cli(self) -> bool {
-        matches!(self, Provider::Claude)
+        matches!(self, Provider::Claude | Provider::Codex | Provider::Copilot)
     }
 
     /// CLIs summarize only; the others do both steps.

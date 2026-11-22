@@ -11,8 +11,8 @@ use liberarr_core::transcription::{
     ChunkResult, Transcribe, Transcriber, Transcript, TranscriptRepo,
 };
 use liberarr_core::{Error, Result};
+use liberarr_infra::agent_cli::{AgentCli, Preset};
 use liberarr_infra::ai::OpenAiCompat;
-use liberarr_infra::claude_cli::ClaudeCli;
 use liberarr_infra::files::{FsAudioStore, FsNoteStore, FsPartialStore, OggSplitter};
 use liberarr_infra::keystore::FileKeyStore;
 use liberarr_infra::mistral::MistralTranscriber;
@@ -37,7 +37,7 @@ enum AnyTranscriber {
 
 enum AnyLlm {
     Compat(OpenAiCompat),
-    Claude(ClaudeCli),
+    Cli(AgentCli),
 }
 
 /// Whether the provider documents a vocabulary field: only Mistral (`context_bias`).
@@ -69,10 +69,21 @@ fn transcriber(p: &Profile, vocabulary: &[String]) -> AnyTranscriber {
     }
 }
 
-fn llm(p: &Profile) -> AnyLlm {
+fn llm(p: &Profile, claude_oauth_token: Option<&str>) -> AnyLlm {
+    if let Some(preset) = Preset::from_provider(p.provider) {
+        // The token is the claude CLI's login; the other CLIs never see it.
+        let env = claude_oauth_token
+            .filter(|_| preset == Preset::Claude)
+            .map(|t| ("CLAUDE_CODE_OAUTH_TOKEN".to_string(), t.to_string()));
+        return AnyLlm::Cli(AgentCli::new(
+            preset,
+            p.program.clone(),
+            p.model.clone(),
+            env.into_iter().collect(),
+        ));
+    }
     let (url, key, model) = (p.base_url.clone(), p.api_key.clone(), p.model.clone());
     match p.provider {
-        Provider::Claude => AnyLlm::Claude(ClaudeCli::new(p.model.clone())),
         Provider::OpenRouter if !p.routing_only.is_empty() => {
             AnyLlm::Compat(OpenAiCompat::new(url, key, model).with_routing(&p.routing_only))
         }
@@ -100,7 +111,7 @@ impl Llm for AnyLlm {
     async fn complete_json(&self, messages: &[ChatMessage]) -> Result<String> {
         match self {
             Self::Compat(l) => l.complete_json(messages).await,
-            Self::Claude(l) => l.complete_json(messages).await,
+            Self::Cli(l) => l.complete_json(messages).await,
         }
     }
 }
@@ -113,7 +124,10 @@ impl App {
         let db = Db::open(&cfg.home.join("liberarr.db"))?;
         Ok(App {
             transcriber: transcriber(&cfg.transcribe, &cfg.vocabulary),
-            llm: cfg.llm.as_ref().map(llm),
+            llm: cfg
+                .llm
+                .as_ref()
+                .map(|p| llm(p, cfg.claude_oauth_token.as_deref())),
             audio: FsAudioStore {
                 audio: audio_dir(&cfg),
             },
@@ -272,6 +286,7 @@ mod tests {
             api_key: String::new(),
             model: "m".into(),
             routing_only: Vec::new(),
+            program: None,
         }
     }
 
@@ -297,6 +312,7 @@ mod tests {
             content_language: Language::En,
             content_language_set: false,
             cookie_secure: false,
+            claude_oauth_token: None,
         })
         .unwrap();
         let recording = |title: &str, text: &str| {

@@ -8,6 +8,7 @@ config.secret_too_short: "%{var} is too short (at least %{min} characters): dele
 config.provider_unknown: "%{var} is not recognized (openai-compatible, mistral, openrouter, claude)"
 config.provider_removed: "%{var} is set to \"anthropic\", which is no longer supported: use %{alternatives} and run `liberarr init` again"
 config.routing_invalid: "%{var} is invalid: a comma-separated list of provider names (lowercase letters, digits, . _ - /), such as azure"
+config.program_not_absolute: "%{var} must be an absolute path"
 config.cannot_transcribe: "%{var}: this provider cannot transcribe"
 config.cannot_summarize: "%{var}: this provider cannot summarize"
 config.content_language_unknown: "LIBERARR_CONTENT_LANGUAGE is not recognized (en, fr)"

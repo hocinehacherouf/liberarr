@@ -20,5 +20,6 @@ pub fn defaults(p: Provider, step: Step) -> (Option<&'static str>, Option<&'stat
         ),
         (Provider::OpenRouter, Step::Summarize) => (Some(OPENROUTER_URL), None),
         (Provider::Claude, _) => (None, Some("sonnet")),
+        (Provider::Codex | Provider::Copilot, _) => (None, None),
     }
 }

@@ -8,6 +8,7 @@ config.secret_too_short: "%{var} est trop court (au moins %{min} caractères) : 
 config.provider_unknown: "%{var} n'est pas reconnu (openai-compatible, mistral, openrouter, claude)"
 config.provider_removed: "%{var} vaut « anthropic », qui n'est plus pris en charge : utilisez %{alternatives} puis relancez `liberarr init`"
 config.routing_invalid: "%{var} est invalide : une liste de noms de fournisseurs séparés par des virgules (minuscules, chiffres, . _ - /), par exemple azure"
+config.program_not_absolute: "%{var} doit être un chemin absolu"
 config.cannot_transcribe: "%{var} : ce fournisseur ne sait pas transcrire"
 config.cannot_summarize: "%{var} : ce fournisseur ne sait pas résumer"
 config.content_language_unknown: "LIBERARR_CONTENT_LANGUAGE n'est pas reconnu (en, fr)"

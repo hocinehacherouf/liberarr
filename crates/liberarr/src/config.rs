@@ -19,6 +19,9 @@ pub struct Profile {
     /// (`LIBERARR_{TRANSCRIBE,LLM}_ROUTING_ONLY`).
     /// Empty: no restriction (and for every other provider).
     pub routing_only: Vec<String>,
+    /// CLI providers, summary only (`LIBERARR_LLM_PROGRAM`): absolute path of the executable.
+    /// `None`: the CLI's name, resolved by the OS PATH.
+    pub program: Option<PathBuf>,
 }
 
 pub struct Config {
@@ -36,6 +39,9 @@ pub struct Config {
     pub content_language: Language,
     /// `LIBERARR_CONTENT_LANGUAGE` is in the `.env`: otherwise the language follows the UI's.
     pub content_language_set: bool,
+    /// `CLAUDE_CODE_OAUTH_TOKEN` from the `.env`: the `claude` CLI's login where its keychain is out of reach.
+    /// Passed to that CLI only, never logged.
+    pub claude_oauth_token: Option<String>,
     /// Set the `Secure` cookie flag (serving behind HTTPS).
     pub cookie_secure: bool,
 }
@@ -141,7 +147,14 @@ fn load_from(
                 _ => t!("config.provider_unknown", var = var).into_owned(),
             })?,
         };
-        let model = need(&format!("LIBERARR_{p}_MODEL"))?;
+        // A CLI picks its own default model when none is set.
+        let model = if provider.is_cli() {
+            get(&format!("LIBERARR_{p}_MODEL"))
+                .filter(|v| !is_unset(v))
+                .map_or_else(String::new, |v| v.trim().to_string())
+        } else {
+            need(&format!("LIBERARR_{p}_MODEL"))?
+        };
         if !provider.can(step) {
             return Err(match step {
                 Step::Transcribe => t!("config.cannot_transcribe", var = var),
@@ -149,7 +162,7 @@ fn load_from(
             }
             .into_owned());
         }
-        // The claude CLI uses its own login: no URL, no key.
+        // A CLI uses its own login: no URL, no key.
         let (base_url, api_key) = if provider.is_cli() {
             (String::new(), String::new())
         } else {
@@ -165,12 +178,24 @@ fn load_from(
                 .ok_or_else(|| t!("config.routing_invalid", var = var).into_owned())?,
             _ => Vec::new(),
         };
+        let var = "LIBERARR_LLM_PROGRAM";
+        let program = match get(var).filter(|v| !v.trim().is_empty()) {
+            Some(v) if step == Step::Summarize && provider.is_cli() => {
+                let path = PathBuf::from(v.trim());
+                if !path.is_absolute() {
+                    return Err(t!("config.program_not_absolute", var = var).into_owned());
+                }
+                Some(path)
+            }
+            _ => None,
+        };
         Ok(Profile {
             provider,
             base_url,
             api_key,
             model,
             routing_only,
+            program,
         })
     };
     // `none`, or nothing at all (provider, URL and model), turns the summary off.
@@ -208,6 +233,9 @@ fn load_from(
             .map_or_else(|| default_notes_dir(home), PathBuf::from),
         content_language,
         content_language_set,
+        claude_oauth_token: get("CLAUDE_CODE_OAUTH_TOKEN")
+            .filter(|v| !is_unset(v))
+            .map(|v| v.trim().to_string()),
         cookie_secure: get("LIBERARR_COOKIE_SECURE").is_some_and(|v| v.trim() == "true"),
     })
 }
@@ -328,6 +356,26 @@ LIBERARR_LLM_MODEL=gpt
             .unwrap();
         assert!(msg.contains("LIBERARR_TRANSCRIBE_PROVIDER"), "{msg}");
         assert!(!msg.contains("sk-a"), "{msg}");
+    }
+
+    #[test]
+    fn cli_provider_needs_no_model_and_an_absolute_program() {
+        let cli = |extra: &str| {
+            load_text(&format!(
+                "{}LIBERARR_LLM_PROVIDER=codex\n{extra}",
+                VALID.replace("LIBERARR_LLM_MODEL=gpt\n", "")
+            ))
+        };
+        let llm = cli("").unwrap().llm.unwrap();
+        assert_eq!((llm.provider, llm.model.as_str()), (Provider::Codex, ""));
+        assert!(llm.program.is_none());
+        let llm = cli("LIBERARR_LLM_PROGRAM=/opt/codex\n")
+            .unwrap()
+            .llm
+            .unwrap();
+        assert_eq!(llm.program, Some(PathBuf::from("/opt/codex")));
+        let msg = cli("LIBERARR_LLM_PROGRAM=codex\n").err().unwrap();
+        assert!(msg.contains("LIBERARR_LLM_PROGRAM"), "{msg}");
     }
 
     #[test]
