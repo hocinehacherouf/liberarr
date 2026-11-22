@@ -4,8 +4,8 @@ import { useTranslation } from 'react-i18next'
 import { Link, NavLink, useLocation } from 'react-router'
 import { useLogout, useMe } from '@/features/auth/api'
 import { useRecordings } from '@/features/recordings/api'
-import { statusIcon } from '@/features/recordings/StatusBadge'
-import { recordingTitle, statusLabel } from '@/features/recordings/title'
+import { recordingStatus } from '@/features/recordings/StatusBadge'
+import { recordingTitle } from '@/features/recordings/title'
 import { Logo } from '@/shared/Logo'
 import { fold } from '@/shared/text'
 import {
@@ -38,7 +38,7 @@ import { ThemeMenu } from './ThemeMenu'
 
 function RecordingsMenu({ search }: { search: string }) {
   const { t } = useTranslation()
-  const { data, isLoading } = useRecordings()
+  const { data, isLoading, isError } = useRecordings()
   const { pathname } = useLocation()
   const { setOpenMobile } = useSidebar()
 
@@ -51,6 +51,13 @@ function RecordingsMenu({ search }: { search: string }) {
           </SidebarMenuItem>
         ))}
       </SidebarMenu>
+    )
+  }
+  if (isError) {
+    return (
+      <p role="alert" className="px-3 py-2 text-sm text-destructive">
+        {t('recordings.loadError')}
+      </p>
     )
   }
   if (data?.length === 0) return <p className="px-3 py-2 text-sm text-muted-foreground">{t('recordings.empty')}</p>
@@ -68,7 +75,7 @@ function RecordingsMenu({ search }: { search: string }) {
   return (
     <SidebarMenu>
       {matches.map((r) => {
-        const Icon = statusIcon(r)
+        const { Icon, iconClass, label } = recordingStatus(r)
         const to = `/recordings/${r.id}`
         return (
           <SidebarMenuItem key={r.id}>
@@ -77,18 +84,9 @@ function RecordingsMenu({ search }: { search: string }) {
               className="max-md:h-11"
               render={<NavLink to={to} onClick={() => setOpenMobile(false)} />}
             >
-              <Icon
-                aria-hidden="true"
-                className={
-                  r.status === 'processing' && !r.no_speech
-                    ? 'motion-safe:animate-spin'
-                    : r.status === 'failed'
-                      ? 'text-destructive'
-                      : ''
-                }
-              />
+              <Icon aria-hidden="true" className={iconClass} />
               <span className="truncate">{recordingTitle(r, t)}</span>
-              <span className="sr-only">{statusLabel(r, t)}</span>
+              <span className="sr-only">{t(label)}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         )

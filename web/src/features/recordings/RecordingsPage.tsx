@@ -1,9 +1,15 @@
+import { MicIcon, SearchXIcon } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
-import { Loading } from '../../shared/Loading'
-import { fold } from '../../shared/text'
-import { formatDate, formatTimestamp } from '../../shared/time'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@/components/ui/empty'
+import { Input } from '@/components/ui/input'
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemTitle } from '@/components/ui/item'
+import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
+import { fold } from '@/shared/text'
+import { formatDate, formatTimestamp } from '@/shared/time'
 import { useRecordings } from './api'
 import { StatusBadge } from './StatusBadge'
 import { recordingTitle } from './title'
@@ -26,57 +32,71 @@ export function RecordingsPage() {
           </span>
         )}
       </h1>
-      {isLoading && <Loading />}
+      {isLoading && (
+        <div role="status" aria-label={t('common.loading')} className="space-y-2">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-16" />
+          ))}
+        </div>
+      )}
       {isError && (
-        <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
-          {t('recordings.loadError')}
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription>{t('recordings.loadError')}</AlertDescription>
+        </Alert>
       )}
       {data?.length === 0 && (
-        <p className="rounded-xl border border-dashed border-border bg-card p-8 text-center text-muted-foreground">
-          {t('recordings.empty')}
-        </p>
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <MicIcon aria-hidden="true" />
+            </EmptyMedia>
+            <EmptyDescription>{t('recordings.empty')}</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       )}
       {data && data.length > 0 && (
-        <label className="mb-4 block max-w-sm text-sm font-medium text-muted-foreground">
-          {t('recordings.searchByTitle')}
-          <input
+        <div className="mb-4 max-w-sm space-y-2">
+          <Label htmlFor="recordings-search">{t('recordings.searchByTitle')}</Label>
+          <Input
+            id="recordings-search"
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-foreground focus:border-primary"
+            className="max-md:h-11"
           />
-        </label>
+        </div>
       )}
       {query && data && data.length > 0 && matches?.length === 0 && (
-        <p role="status" className="rounded-xl border border-dashed border-border bg-card p-8 text-center text-muted-foreground">
-          {t('recordings.noMatches')}
-        </p>
+        <Empty role="status" className="border">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <SearchXIcon aria-hidden="true" />
+            </EmptyMedia>
+            <EmptyDescription>{t('recordings.noMatches')}</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       )}
       {matches && matches.length > 0 && (
-        <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+        <ItemGroup className="gap-2">
           {matches.map((r) => (
-            <li key={r.id}>
-              <Link
-                to={`/recordings/${r.id}`}
-                className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1 px-4 py-3 hover:bg-primary/5 focus-visible:-outline-offset-2 sm:grid-cols-[1fr_auto_auto_auto]"
-              >
-                <span className="col-span-2 truncate font-medium sm:col-span-1">
-                  {recordingTitle(r, t)}
-                </span>
-                <span className="flex gap-3 text-sm text-muted-foreground sm:contents">
-                  <time dateTime={r.created_at}>{formatDate(r.created_at)}</time>
-                  <span className="font-mono tabular-nums sm:w-14 sm:text-right">
+            // ItemGroup is role="list": each row is wrapped so the link keeps its own role.
+            <div key={r.id} role="listitem">
+              <Item variant="outline" size="sm" render={<Link to={`/recordings/${r.id}`} />}>
+                <ItemContent className="min-w-0">
+                  <ItemTitle className="block max-w-full truncate">{recordingTitle(r, t)}</ItemTitle>
+                  <ItemDescription className="tabular-nums">
+                    <time dateTime={r.created_at}>{formatDate(r.created_at)}</time>
+                    {' · '}
                     {r.duration_s != null ? formatTimestamp(r.duration_s) : '—'}
-                  </span>
-                </span>
-                <span className="justify-self-end">
+                  </ItemDescription>
+                </ItemContent>
+                <ItemActions className="shrink-0">
                   <StatusBadge recording={r} />
-                </span>
-              </Link>
-            </li>
+                </ItemActions>
+              </Item>
+            </div>
           ))}
-        </ul>
+        </ItemGroup>
       )}
     </div>
   )

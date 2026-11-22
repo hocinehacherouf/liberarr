@@ -2,7 +2,7 @@ import { useCallback, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
 import { Link, useParams } from 'react-router'
-import { Loading } from '../../shared/Loading'
+import { Loading } from '@/shared/Loading'
 import { ApiError } from '../../shared/api'
 import { CopyButton } from '../../shared/CopyButton'
 import { formatDate, formatTimestamp } from '../../shared/time'
@@ -12,7 +12,7 @@ import { TranscriptView } from '../transcription/TranscriptView'
 import { downloadText, transcriptCopyText, transcriptFileName, transcriptFileText } from '../transcription/text'
 import { useRecording, useRenameSpeaker, useRerun, useSpeakerCount, type Job } from './api'
 import { StatusBadge } from './StatusBadge'
-import { recordingTitle } from './title'
+import { recordingTitle } from '@/features/recordings/title'
 
 // Glyph and color of a pipeline step, as in the terminal app: the glyph alone tells the state.
 const JOB: Record<Job['status'], [string, string]> = {
@@ -64,7 +64,7 @@ function RecordingContent({ id }: { id: number }) {
       {t('recordings.back')}
     </Link>
   )
-  if (isLoading) return <Loading className="mx-auto max-w-5xl px-4 py-8" />
+  if (isLoading) return <Loading className="mx-auto w-full max-w-5xl px-4 py-8" />
   if (isError || !rec)
     return (
       <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-8">

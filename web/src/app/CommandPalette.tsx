@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/command'
 import { useLogout } from '@/features/auth/api'
 import { useRecordings } from '@/features/recordings/api'
-import { statusIcon } from '@/features/recordings/StatusBadge'
+import { recordingStatus } from '@/features/recordings/StatusBadge'
 import { recordingTitle } from '@/features/recordings/title'
 import { fold } from '@/shared/text'
 
@@ -65,7 +65,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
           {data && data.length > 0 && (
             <CommandGroup heading={t('recordings.title')}>
               {data.map((r) => {
-                const Icon = statusIcon(r)
+                const { Icon } = recordingStatus(r)
                 const title = recordingTitle(r, t)
                 return (
                   // The id keeps two recordings with the same title apart.
