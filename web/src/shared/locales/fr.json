@@ -31,6 +31,7 @@
     "retry": "Relancer",
     "retryError": "Impossible de relancer l'étape.",
     "retryErrorWithDetail": "Impossible de relancer l'étape. {{error}}",
+    "noSummaryEngine": "Aucun moteur de résumé n'est configuré. Lance `liberarr init` pour en choisir un.",
     "rerunTitle": "Relancer une étape",
     "rerunHelp": "Les étapes suivantes seront également relancées.",
     "rerunStep": "Relancer « {{step}} »",

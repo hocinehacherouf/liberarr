@@ -67,6 +67,8 @@ export function RecordingPage() {
   const failedStep = rec.status === 'failed' ? rec.failed_step : null
   const failedJob = failedStep ? rec.jobs.findLast((j) => j.step === failedStep) : undefined
   const rerunDetail = rerun.error instanceof ApiError ? rerun.error.message : ''
+  // The server refuses a summary rerun (409) when `liberarr init` chose no engine.
+  const noEngine = rerun.error instanceof ApiError && rerun.error.status === 409 && rerun.variables === 'summarize'
   // The latest job of each step, in the order the steps first ran.
   const steps = [...new Set(rec.jobs.map((j) => j.step))].map((step) => rec.jobs.findLast((j) => j.step === step)!)
 
@@ -141,7 +143,9 @@ export function RecordingPage() {
       )}
       {rerun.isError && (
         <p role="alert" className="text-sm text-err">
-          {t(rerunDetail ? 'recordings.retryErrorWithDetail' : 'recordings.retryError', { error: rerunDetail })}
+          {noEngine
+            ? t('recordings.noSummaryEngine')
+            : t(rerunDetail ? 'recordings.retryErrorWithDetail' : 'recordings.retryError', { error: rerunDetail })}
         </p>
       )}
       {rec.status === 'processing' && (

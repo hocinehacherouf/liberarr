@@ -9,11 +9,11 @@ Error messages name the setting or the command to run; they never show a secret.
 | `….env not found: run liberarr init first` | Run `liberarr init`. If you use `LIBERARR_HOME`, check it points to the right folder. |
 | `LIBERARR_… is missing, empty or still an example` | Run `liberarr init`: it asks only for what is missing. |
 | `LIBERARR_… is too short` | Delete that line from `.env` and run `liberarr init` again: it generates a new value. Never do this for `LIBERARR_SECRET_KEY` once a device is linked. |
-| `…_PROVIDER is not recognized` / `this provider cannot transcribe` | Use a value from [AI providers](ai-providers.md). `anthropic` and `claude` can only summarize. |
-| `the claude CLI is missing or not signed in` | Install Claude Code and sign in with `claude` first, or choose the `anthropic` provider with an API key. |
+| `…_PROVIDER is not recognized` / `this provider cannot transcribe` | Use a value from [AI providers](ai-providers.md). `claude`, `codex` and `copilot` can only summarize, and `anthropic` is no longer supported (use `claude` or `openrouter`). |
+| `The claude CLI did not answer (missing or not signed in)` (or `codex`, `copilot`) | Install the CLI and sign in by running it once, then run `liberarr init` again. Under `serve` on a server, add `CLAUDE_CODE_OAUTH_TOKEN` to the `.env`, see [AI providers](ai-providers.md#subscription-clis). In Docker no host CLI is visible: use an API provider. |
 | `Notes are written in …, the interface language` | Add `LIBERARR_CONTENT_LANGUAGE=en` (or `fr`) to `.env` so notes keep one language. |
 | `Warning: …_ROUTING_ONLY is empty` | OpenRouter may use its own shared models. Set the list, see [OpenRouter](ai-providers.md#openrouter). |
-| `Warning: LIBERARR_TRANSCRIBE_VOCABULARY is ignored` | Your transcription provider or model takes no vocabulary. Use `mistral`, or `openai` with `gpt-transcribe`, or remove the line. |
+| `Warning: LIBERARR_TRANSCRIBE_VOCABULARY is ignored` | Your transcription provider or model takes no vocabulary. Use `mistral`, or remove the line. |
 | `No answer available (input closed)` | `init` has no terminal to ask in. Use `liberarr init --non-interactive` with the variables exported. |
 
 ## Device (`link`, `pull`)

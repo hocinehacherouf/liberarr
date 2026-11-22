@@ -1,7 +1,8 @@
 //! `<LIBERARR_HOME>/.env` is the one source of secrets and settings (only `LIBERARR_HOME`, which
 //! locates it, comes from the environment). Errors name the variable, never its value.
-use liberarr_core::ai::{Provider, Step, capability, supports};
+use liberarr_core::ai::{Provider, Step};
 use liberarr_core::lang::Language;
+use liberarr_infra::agent_cli::Preset;
 use rust_i18n::t;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -19,6 +20,9 @@ pub struct Profile {
     /// (`LIBERARR_{TRANSCRIBE,LLM}_ROUTING_ONLY`).
     /// Empty: no restriction (and for every other provider).
     pub routing_only: Vec<String>,
+    /// CLI providers, summary only (`LIBERARR_LLM_PROGRAM`): absolute path of the executable.
+    /// `None`: the CLI's name, resolved by the OS PATH.
+    pub program: Option<PathBuf>,
 }
 
 pub struct Config {
@@ -27,7 +31,8 @@ pub struct Config {
     pub api_key: String,
     pub admin_password: String,
     pub transcribe: Profile,
-    pub llm: Profile,
+    /// The summary engine is optional: `None` without a summary, the note is exported anyway.
+    pub llm: Option<Profile>,
     /// `LIBERARR_TRANSCRIBE_VOCABULARY`: names and terms to bias the transcription toward.
     pub vocabulary: Vec<String>,
     pub obsidian: PathBuf,
@@ -35,6 +40,9 @@ pub struct Config {
     pub content_language: Language,
     /// `LIBERARR_CONTENT_LANGUAGE` is in the `.env`: otherwise the language follows the UI's.
     pub content_language_set: bool,
+    /// `CLAUDE_CODE_OAUTH_TOKEN` from the `.env`: the `claude` CLI's login where its keychain is out of reach.
+    /// Passed to that CLI only, never logged.
+    pub claude_oauth_token: Option<String>,
     /// Set the `Secure` cookie flag (serving behind HTTPS).
     pub cookie_secure: bool,
 }
@@ -126,19 +134,46 @@ fn load_from(
         let var = format!("LIBERARR_{p}_PROVIDER");
         let provider = match get(&var).filter(|v| !v.trim().is_empty()) {
             None => Provider::Compatible,
-            Some(v) => Provider::parse(v.trim())
-                .ok_or_else(|| t!("config.provider_unknown", var = var).into_owned())?,
+            Some(v) => Provider::parse(v.trim()).ok_or_else(|| match v.trim() {
+                // The `anthropic` adapter is gone: say what to use instead.
+                "anthropic" => t!(
+                    "config.provider_removed",
+                    var = var,
+                    alternatives = match step {
+                        Step::Transcribe => "mistral, openrouter",
+                        Step::Summarize => "claude, codex, copilot, openrouter",
+                    }
+                )
+                .into_owned(),
+                _ => t!(
+                    "config.provider_unknown",
+                    var = var,
+                    providers = match step {
+                        Step::Transcribe => "openai-compatible, mistral, openrouter",
+                        Step::Summarize =>
+                            "openai-compatible, mistral, openrouter, claude, codex, copilot",
+                    }
+                )
+                .into_owned(),
+            })?,
         };
-        let model = need(&format!("LIBERARR_{p}_MODEL"))?;
-        if !supports(capability(provider, &model), step) {
+        // A CLI picks its own default model when none is set.
+        let model = if provider.is_cli() {
+            get(&format!("LIBERARR_{p}_MODEL"))
+                .filter(|v| !is_unset(v))
+                .map_or_else(String::new, |v| v.trim().to_string())
+        } else {
+            need(&format!("LIBERARR_{p}_MODEL"))?
+        };
+        if !provider.can(step) {
             return Err(match step {
                 Step::Transcribe => t!("config.cannot_transcribe", var = var),
                 Step::Summarize => t!("config.cannot_summarize", var = var),
             }
             .into_owned());
         }
-        // The claude CLI uses its own login: no URL, no key.
-        let (base_url, api_key) = if provider == Provider::Claude {
+        // A CLI uses its own login: no URL, no key.
+        let (base_url, api_key) = if provider.is_cli() {
             (String::new(), String::new())
         } else {
             (
@@ -153,14 +188,36 @@ fn load_from(
                 .ok_or_else(|| t!("config.routing_invalid", var = var).into_owned())?,
             _ => Vec::new(),
         };
+        let var = "LIBERARR_LLM_PROGRAM";
+        let program = match get(var).filter(|v| !v.trim().is_empty()) {
+            Some(v) if step == Step::Summarize && provider.is_cli() => {
+                let path = PathBuf::from(v.trim());
+                if !path.is_absolute() {
+                    return Err(t!("config.program_not_absolute", var = var).into_owned());
+                }
+                // The preset's flags only fit its own CLI: refuse another program.
+                let name = Preset::from_provider(provider).map(Preset::program_name);
+                if path.file_name().and_then(|n| n.to_str()) != name {
+                    return Err(t!("config.program_mismatch", var = var).into_owned());
+                }
+                Some(path)
+            }
+            _ => None,
+        };
         Ok(Profile {
             provider,
             base_url,
             api_key,
             model,
             routing_only,
+            program,
         })
     };
+    // `none`, or nothing at all (provider, URL and model), turns the summary off.
+    let summary_engine = !get("LIBERARR_LLM_PROVIDER").is_some_and(|v| v.trim() == "none")
+        && ["PROVIDER", "BASE_URL", "MODEL"]
+            .iter()
+            .any(|k| get(&format!("LIBERARR_LLM_{k}")).is_some_and(|v| !is_unset(&v)));
     let configured = get("LIBERARR_CONTENT_LANGUAGE").filter(|v| !v.trim().is_empty());
     let content_language_set = configured.is_some();
     let content_language = match configured {
@@ -174,7 +231,9 @@ fn load_from(
         api_key: secret("LIBERARR_API_KEY")?,
         admin_password: secret("LIBERARR_ADMIN_PASSWORD")?,
         transcribe: profile("TRANSCRIBE", Step::Transcribe)?,
-        llm: profile("LLM", Step::Summarize)?,
+        llm: summary_engine
+            .then(|| profile("LLM", Step::Summarize))
+            .transpose()?,
         vocabulary: get("LIBERARR_TRANSCRIBE_VOCABULARY")
             .map(|v| {
                 v.split(',')
@@ -189,6 +248,9 @@ fn load_from(
             .map_or_else(|| default_notes_dir(home), PathBuf::from),
         content_language,
         content_language_set,
+        claude_oauth_token: get("CLAUDE_CODE_OAUTH_TOKEN")
+            .filter(|v| !is_unset(v))
+            .map(|v| v.trim().to_string()),
         cookie_secure: get("LIBERARR_COOKIE_SECURE").is_some_and(|v| v.trim() == "true"),
     })
 }
@@ -284,9 +346,12 @@ LIBERARR_LLM_MODEL=gpt
             }
             load_text(&t)
         };
-        assert_eq!(or(Some("azure")).ok().unwrap().llm.routing_only, ["azure"]);
+        assert_eq!(
+            or(Some("azure")).ok().unwrap().llm.unwrap().routing_only,
+            ["azure"]
+        );
         for none in [None, Some("")] {
-            assert!(or(none).ok().unwrap().llm.routing_only.is_empty());
+            assert!(or(none).ok().unwrap().llm.unwrap().routing_only.is_empty());
         }
         for bad in ["azure,", "Azure!", "-"] {
             let msg = or(Some(bad)).err().unwrap();
@@ -300,11 +365,73 @@ LIBERARR_LLM_MODEL=gpt
     }
 
     #[test]
-    fn claude_cannot_be_the_transcriber() {
-        let msg = load_text(&provider_line("LIBERARR_TRANSCRIBE_PROVIDER", "anthropic"))
+    fn cli_provider_cannot_be_the_transcriber() {
+        let msg = load_text(&provider_line("LIBERARR_TRANSCRIBE_PROVIDER", "claude"))
             .err()
             .unwrap();
         assert!(msg.contains("LIBERARR_TRANSCRIBE_PROVIDER"), "{msg}");
         assert!(!msg.contains("sk-a"), "{msg}");
+    }
+
+    #[test]
+    fn cli_provider_needs_no_model_and_an_absolute_program() {
+        let cli = |extra: &str| {
+            load_text(&format!(
+                "{}LIBERARR_LLM_PROVIDER=codex\n{extra}",
+                VALID.replace("LIBERARR_LLM_MODEL=gpt\n", "")
+            ))
+        };
+        let llm = cli("").unwrap().llm.unwrap();
+        assert_eq!((llm.provider, llm.model.as_str()), (Provider::Codex, ""));
+        assert!(llm.program.is_none());
+        let llm = cli("LIBERARR_LLM_PROGRAM=/opt/codex\n")
+            .unwrap()
+            .llm
+            .unwrap();
+        assert_eq!(llm.program, Some(PathBuf::from("/opt/codex")));
+        let msg = cli("LIBERARR_LLM_PROGRAM=codex\n").err().unwrap();
+        assert!(msg.contains("LIBERARR_LLM_PROGRAM"), "{msg}");
+        // Another CLI's program is refused: the lockdown flags are the preset's own.
+        let msg = cli("LIBERARR_LLM_PROGRAM=/opt/claude\n").err().unwrap();
+        assert!(msg.contains("LIBERARR_LLM_PROGRAM"), "{msg}");
+        assert!(!msg.contains("/opt/claude"), "{msg}");
+    }
+
+    #[test]
+    fn removed_and_aliased_providers() {
+        // `anthropic` is refused by name, with the key kept out of the message.
+        let msg = load_text(&provider_line("LIBERARR_LLM_PROVIDER", "anthropic"))
+            .err()
+            .unwrap();
+        assert!(msg.contains("LIBERARR_LLM_PROVIDER"), "{msg}");
+        assert!(!msg.contains("sk-b"), "{msg}");
+        // `openai` still works, as an alias of `openai-compatible`.
+        let cfg = load_text(&provider_line("LIBERARR_LLM_PROVIDER", "openai")).unwrap();
+        assert_eq!(cfg.llm.unwrap().provider, Provider::Compatible);
+    }
+
+    #[test]
+    fn summary_engine_is_optional() {
+        let llm_lines = |keep: bool| -> String {
+            VALID
+                .lines()
+                .filter(|l| {
+                    keep || !["BASE_URL", "MODEL"]
+                        .iter()
+                        .any(|k| l.contains(&format!("LLM_{k}")))
+                })
+                .map(|l| format!("{l}\n"))
+                .collect()
+        };
+        // Nothing about the summary: off.
+        assert!(load_text(&llm_lines(false)).unwrap().llm.is_none());
+        // `none` wins over the other LLM lines.
+        let off = load_text(&provider_line("LIBERARR_LLM_PROVIDER", "none")).unwrap();
+        assert!(off.llm.is_none());
+        // A URL and a model without a provider stay an openai-compatible gateway.
+        let llm = load_text(&llm_lines(true)).unwrap().llm.unwrap();
+        assert_eq!(llm.provider, Provider::Compatible);
+        // `none` is for the summary only.
+        assert!(load_text(&provider_line("LIBERARR_TRANSCRIBE_PROVIDER", "none")).is_err());
     }
 }

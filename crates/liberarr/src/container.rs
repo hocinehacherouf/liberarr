@@ -1,6 +1,6 @@
 //! Composition root: the one place where adapters are wired to the core ports.
 use crate::config::{Config, Profile};
-use liberarr_core::ai::{DEFAULT_UPLOAD_BYTES, Provider, Step, Timestamps, capability};
+use liberarr_core::ai::{DEFAULT_UPLOAD_BYTES, Provider, Step};
 use liberarr_core::exports::ExportToObsidian;
 use liberarr_core::jobs::{Job, JobInfo, JobQueue, StepHandler, run_job_once};
 use liberarr_core::recordings::{Ingest, Recording, RecordingItem, RecordingRepo};
@@ -11,9 +11,8 @@ use liberarr_core::transcription::{
     ChunkResult, Transcribe, Transcriber, Transcript, TranscriptRepo,
 };
 use liberarr_core::{Error, Result};
+use liberarr_infra::agent_cli::{AgentCli, Preset};
 use liberarr_infra::ai::OpenAiCompat;
-use liberarr_infra::anthropic::AnthropicLlm;
-use liberarr_infra::claude_cli::ClaudeCli;
 use liberarr_infra::files::{FsAudioStore, FsNoteStore, FsPartialStore, OggSplitter};
 use liberarr_infra::keystore::FileKeyStore;
 use liberarr_infra::mistral::MistralTranscriber;
@@ -25,7 +24,8 @@ pub struct App {
     pub cfg: Config,
     pub db: Db,
     transcriber: AnyTranscriber,
-    llm: AnyLlm,
+    /// `None`: no summary engine, the summarize step passes without doing anything.
+    llm: Option<AnyLlm>,
     audio: FsAudioStore,
 }
 
@@ -37,18 +37,12 @@ enum AnyTranscriber {
 
 enum AnyLlm {
     Compat(OpenAiCompat),
-    Anthropic(AnthropicLlm),
-    Claude(ClaudeCli),
+    Cli(AgentCli),
 }
 
-/// Whether the provider documents a vocabulary field for this model: Mistral `context_bias`,
-/// OpenAI `keywords` (`gpt-transcribe` only).
+/// Whether the provider documents a vocabulary field: only Mistral (`context_bias`).
 fn takes_vocabulary(p: &Profile) -> bool {
-    match p.provider {
-        Provider::Mistral => true,
-        Provider::OpenAi => p.model == "gpt-transcribe",
-        _ => false,
-    }
+    p.provider == Provider::Mistral
 }
 
 fn transcriber(p: &Profile, vocabulary: &[String]) -> AnyTranscriber {
@@ -64,10 +58,7 @@ fn transcriber(p: &Profile, vocabulary: &[String]) -> AnyTranscriber {
             MistralTranscriber::new(url, key, model).with_context_bias(vocabulary),
         ),
         provider => {
-            // Models known to return text only reject `verbose_json`.
-            let ask_segments =
-                capability(provider, &p.model).transcription != Some(Timestamps::TextOnly);
-            let t = OpenAiCompat::new(url, key, model, ask_segments).with_keywords(vocabulary);
+            let t = OpenAiCompat::new(url, key, model);
             AnyTranscriber::Compat(match provider {
                 Provider::OpenRouter if !p.routing_only.is_empty() => {
                     t.with_routing(&p.routing_only)
@@ -78,15 +69,21 @@ fn transcriber(p: &Profile, vocabulary: &[String]) -> AnyTranscriber {
     }
 }
 
-fn llm(p: &Profile) -> AnyLlm {
+fn llm(p: &Profile, claude_oauth_token: Option<&str>) -> AnyLlm {
+    if let Some(preset) = Preset::from_provider(p.provider) {
+        return AnyLlm::Cli(AgentCli::new(
+            preset,
+            p.program.clone(),
+            p.model.clone(),
+            claude_oauth_token.map(String::from),
+        ));
+    }
     let (url, key, model) = (p.base_url.clone(), p.api_key.clone(), p.model.clone());
     match p.provider {
-        Provider::Anthropic => AnyLlm::Anthropic(AnthropicLlm::new(url, key, model)),
-        Provider::Claude => AnyLlm::Claude(ClaudeCli::new(p.model.clone())),
         Provider::OpenRouter if !p.routing_only.is_empty() => {
-            AnyLlm::Compat(OpenAiCompat::new(url, key, model, true).with_routing(&p.routing_only))
+            AnyLlm::Compat(OpenAiCompat::new(url, key, model).with_routing(&p.routing_only))
         }
-        _ => AnyLlm::Compat(OpenAiCompat::new(url, key, model, true)),
+        _ => AnyLlm::Compat(OpenAiCompat::new(url, key, model)),
     }
 }
 
@@ -110,8 +107,7 @@ impl Llm for AnyLlm {
     async fn complete_json(&self, messages: &[ChatMessage]) -> Result<String> {
         match self {
             Self::Compat(l) => l.complete_json(messages).await,
-            Self::Anthropic(l) => l.complete_json(messages).await,
-            Self::Claude(l) => l.complete_json(messages).await,
+            Self::Cli(l) => l.complete_json(messages).await,
         }
     }
 }
@@ -124,7 +120,10 @@ impl App {
         let db = Db::open(&cfg.home.join("liberarr.db"))?;
         Ok(App {
             transcriber: transcriber(&cfg.transcribe, &cfg.vocabulary),
-            llm: llm(&cfg.llm),
+            llm: cfg
+                .llm
+                .as_ref()
+                .map(|p| llm(p, cfg.claude_oauth_token.as_deref())),
             audio: FsAudioStore {
                 audio: audio_dir(&cfg),
             },
@@ -152,10 +151,11 @@ impl App {
 /// a vocabulary the transcription provider cannot take.
 pub fn warnings(cfg: &Config) -> Vec<String> {
     let mut w: Vec<String> = [
-        (Step::Transcribe, &cfg.transcribe),
-        (Step::Summarize, &cfg.llm),
+        Some((Step::Transcribe, &cfg.transcribe)),
+        cfg.llm.as_ref().map(|p| (Step::Summarize, p)),
     ]
     .into_iter()
+    .flatten()
     .filter(|(_, p)| p.provider == Provider::OpenRouter && p.routing_only.is_empty())
     .map(|(step, _)| {
         let var = crate::setup::routing_var(step);
@@ -199,16 +199,20 @@ impl StepHandler for App {
             .run(id)
             .await
             .map(|()| true),
-            "summarize" => Summarize {
-                transcripts: &self.db,
-                llm: &self.llm,
-                summaries: &self.db,
-                lang: self.cfg.content_language,
-            }
-            .run(id)
-            .await
-            // No speech: no summary, so the chain stops before the export.
-            .map(|s| s.is_some()),
+            // No engine: nothing to call, the export still writes the note.
+            "summarize" => match &self.llm {
+                None => Ok(true),
+                Some(llm) => Summarize {
+                    transcripts: &self.db,
+                    llm,
+                    summaries: &self.db,
+                    lang: self.cfg.content_language,
+                }
+                .run(id)
+                .await
+                // No speech: no summary, so the chain stops before the export.
+                .map(|s| s.is_some()),
+            },
             "export" => ExportToObsidian {
                 recordings: &self.db,
                 transcripts: &self.db,
@@ -243,6 +247,9 @@ impl Backend for App {
         self.db.list_for(id).await
     }
     async fn enqueue(&self, id: i64, step: &str) -> Result<i64> {
+        if step == "summarize" && self.llm.is_none() {
+            return Err(Error::Conflict("summary engine".into()));
+        }
         self.db.enqueue(id, step).await
     }
     async fn toggle_action(
@@ -263,28 +270,123 @@ impl Backend for App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use liberarr_core::jobs::JobStatus;
+    use liberarr_core::lang::Language;
+    use liberarr_core::recordings::{NewRecording, Source};
+    use liberarr_core::transcription::Segment;
 
-    /// A field the model does not document gets the whole transcription refused (OpenAI rejects
-    /// unknown fields): the vocabulary goes only where it is documented.
+    fn profile() -> Profile {
+        Profile {
+            provider: Provider::Compatible,
+            base_url: String::new(),
+            api_key: String::new(),
+            model: "m".into(),
+            routing_only: Vec::new(),
+            program: None,
+        }
+    }
+
+    /// Without an engine the summarize job completes, the note is still written for a transcript
+    /// with speech, and the API refuses to queue a summarize that could not run.
+    #[test]
+    fn no_engine_skips_summarize_and_refuses_rerun() {
+        let home = std::env::temp_dir().join(format!(
+            "liberarr-noengine-{}-{}",
+            std::process::id(),
+            jiff::Timestamp::now().as_nanosecond()
+        ));
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let app = App::open(Config {
+            home: home.clone(),
+            secret_key: "k".repeat(32),
+            api_key: String::new(),
+            admin_password: String::new(),
+            transcribe: profile(),
+            llm: None,
+            vocabulary: Vec::new(),
+            obsidian: home.join("notes"),
+            content_language: Language::En,
+            content_language_set: false,
+            cookie_secure: false,
+            claude_oauth_token: None,
+        })
+        .unwrap();
+        let recording = |title: &str, text: &str| {
+            let id = rt
+                .block_on(app.db.add(NewRecording {
+                    title: Some(title.into()),
+                    source: Source::File,
+                    source_ref: title.into(),
+                    audio_path: "a.ogg".into(),
+                    duration_s: Some(10.0),
+                    created_at: "2026-03-02T10:00:00Z".parse().unwrap(),
+                }))
+                .unwrap();
+            rt.block_on(TranscriptRepo::save(
+                &app.db,
+                id,
+                &Transcript {
+                    engine: "e".into(),
+                    language: None,
+                    text: text.into(),
+                    segments: vec![Segment {
+                        start: 0.0,
+                        end: 2.0,
+                        text: text.into(),
+                    }],
+                    has_timestamps: true,
+                },
+            ))
+            .unwrap();
+            rt.block_on(app.db.enqueue(id, "summarize")).unwrap();
+            id
+        };
+        let spoken = recording("Budget review", "Bonjour, let's start.");
+        let silent = recording("Silence", "  ");
+        rt.block_on(app.drain()).unwrap();
+
+        for id in [spoken, silent] {
+            let jobs = rt.block_on(app.db.list_for(id)).unwrap();
+            let steps: Vec<_> = jobs.iter().map(|j| (j.step.as_str(), j.status)).collect();
+            assert_eq!(
+                steps,
+                [("summarize", JobStatus::Done), ("export", JobStatus::Done)]
+            );
+        }
+        let note = |id| {
+            rt.block_on(RecordingRepo::get(&app.db, id))
+                .unwrap()
+                .unwrap()
+                .export_path
+        };
+        assert!(home.join("notes").join(note(spoken).unwrap()).is_file());
+        assert!(note(silent).is_none());
+
+        let err = rt.block_on(Backend::enqueue(&app, spoken, "summarize"));
+        assert!(matches!(err, Err(Error::Conflict(_))), "{err:?}");
+        assert!(
+            rt.block_on(Backend::enqueue(&app, spoken, "export"))
+                .is_ok()
+        );
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    /// A field the model does not document gets the whole transcription refused: the vocabulary
+    /// goes only where it is documented.
     #[test]
     fn vocabulary_only_where_documented() {
         let p = |provider, model: &str| Profile {
             provider,
-            base_url: String::new(),
-            api_key: String::new(),
             model: model.into(),
-            routing_only: Vec::new(),
+            ..profile()
         };
         assert!(takes_vocabulary(&p(
             Provider::Mistral,
             "voxtral-mini-transcribe-3"
         )));
-        assert!(takes_vocabulary(&p(Provider::OpenAi, "gpt-transcribe")));
         for (provider, model) in [
-            (Provider::OpenAi, "whisper-1"),
-            (Provider::OpenAi, "gpt-4o-transcribe"),
             (Provider::OpenRouter, "openai/gpt-transcribe"),
-            (Provider::Compatible, "gpt-transcribe"),
+            (Provider::Compatible, "whisper-1"),
         ] {
             assert!(!takes_vocabulary(&p(provider, model)), "{model}");
         }

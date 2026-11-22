@@ -1,45 +1,37 @@
-//! The connection test behind `init`: the model list of an API provider, or the login of the
-//! `claude` CLI.
+//! The connection test behind `init`: the model list of an API provider, or one trivial message
+//! through an AI CLI.
 use liberarr_core::ai::Provider;
+use liberarr_core::summaries::{ChatMessage, Llm, Role};
+use liberarr_infra::agent_cli::{AgentCli, Preset};
 use liberarr_infra::model_list::{list_models, openrouter_providers};
-use rust_i18n::t;
+use std::path::PathBuf;
+use std::time::Duration;
 
-/// True when `claude auth status` exits 0 within a few seconds. Output is discarded: no token is read.
-fn claude_connected() -> bool {
-    let Ok(mut child) = std::process::Command::new("claude")
-        .args(["auth", "status"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    else {
-        return false;
-    };
-    for _ in 0..50 {
-        match child.try_wait() {
-            Ok(Some(s)) => return s.success(),
-            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
-            Err(_) => return false,
-        }
-    }
-    let _ = child.kill();
-    let _ = child.wait();
-    false
-}
+/// A first call can be slow (login refresh, model start).
+const CLI_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// The [`super::Checker`] of the real command: blocks on `rt`.
+/// The [`super::Checker`] of the real command: blocks on `rt`. For a CLI, `url` is the path of
+/// the program (empty: found by name) and `oauth` the token of a server login, if any; any reply is
+/// a success. The error is a fixed text: neither the reply nor a token is ever in it.
 pub fn connect(
     rt: &tokio::runtime::Runtime,
     provider: Provider,
     url: &str,
     key: &str,
+    oauth: Option<&str>,
 ) -> Result<Vec<String>, String> {
-    if provider == Provider::Claude {
-        return if claude_connected() {
-            Ok(Vec::new())
-        } else {
-            Err(t!("setup.claude_not_ready").into_owned())
-        };
+    if let Some(preset) = Preset::from_provider(provider) {
+        let program = (!url.is_empty()).then(|| PathBuf::from(url));
+        let cli = AgentCli::new(preset, program, String::new(), oauth.map(String::from))
+            .with_timeout(CLI_TIMEOUT);
+        let hello = [ChatMessage {
+            role: Role::User,
+            content: r#"Reply with the JSON {"ok":true}"#.to_string(),
+        }];
+        return rt
+            .block_on(cli.complete_json(&hello))
+            .map(|_| Vec::new())
+            .map_err(|_| format!("{} CLI did not answer", preset.program_name()));
     }
     rt.block_on(list_models(provider, url, key))
         .map_err(|e| e.to_string())

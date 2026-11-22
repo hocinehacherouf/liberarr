@@ -72,6 +72,8 @@ LIBERARR_LLM_MODEL=mistral-small-2603
 LIBERARR_CONTENT_LANGUAGE=en
 ```
 
+The summary lines are optional: leave them out for transcripts only (`none`). The container does not see the `claude`, `codex` and `copilot` CLIs of your host, so they cannot be used inside it; see [AI providers](ai-providers.md#subscription-clis).
+
 Then create the `.env` in the volume, and start the web UI:
 
 ```sh

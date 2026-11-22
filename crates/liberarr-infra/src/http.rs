@@ -21,7 +21,6 @@ const BASE_DELAY: Duration = if cfg!(test) {
 #[derive(Clone, Copy)]
 pub(crate) enum Auth<'a> {
     Bearer(&'a str),
-    Header(&'static str, &'a str),
 }
 
 /// No redirects: a hostile or misconfigured base URL must not forward the key or the audio.
@@ -159,10 +158,8 @@ async fn attempt_once(
     req: &impl Fn(reqwest::RequestBuilder) -> reqwest::RequestBuilder,
 ) -> std::result::Result<Value, Failure> {
     let builder = http.request(method, url).timeout(timeout);
-    let builder = match auth {
-        Auth::Bearer(key) => builder.bearer_auth(key),
-        Auth::Header(name, key) => builder.header(name, key),
-    };
+    let Auth::Bearer(key) = auth;
+    let builder = builder.bearer_auth(key);
     let res = req(builder).send().await.map_err(|e| {
         // The provider was never reached, or (when allowed) gave no reply in time.
         let transient = e.is_connect() || (retry_timeout && e.is_timeout());

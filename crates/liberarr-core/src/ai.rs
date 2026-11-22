@@ -1,30 +1,33 @@
-//! AI providers and what each (provider, model) pair can do. Pure data: no I/O.
+//! AI providers and which steps each can do. Pure data: no I/O.
 
 /// Transcription APIs cap uploads at 25 MB; stay under.
 pub const DEFAULT_UPLOAD_BYTES: usize = 24 * 1024 * 1024;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Provider {
-    /// Any OpenAI-compatible base URL (gateway such as LiteLLM).
+    /// Any OpenAI-compatible base URL (OpenAI itself, or a gateway such as LiteLLM).
     Compatible,
-    OpenAi,
     Mistral,
-    Anthropic,
-    /// OpenAI-compatible chat through the user's own provider keys (BYOK), summaries only.
+    /// OpenAI-compatible chat through the user's own provider keys (BYOK).
     OpenRouter,
     /// The user's logged-in `claude` CLI (subscription), summaries only.
     Claude,
+    /// The user's logged-in `codex` CLI, summaries only.
+    Codex,
+    /// The user's logged-in GitHub `copilot` CLI, summaries only.
+    Copilot,
 }
 
 impl Provider {
+    /// `openai` is an old name of `openai-compatible`. Anything else, `anthropic` included, is `None`.
     pub fn parse(s: &str) -> Option<Provider> {
         Some(match s {
-            "openai-compatible" => Provider::Compatible,
-            "openai" => Provider::OpenAi,
+            "openai-compatible" | "openai" => Provider::Compatible,
             "mistral" => Provider::Mistral,
-            "anthropic" => Provider::Anthropic,
             "openrouter" => Provider::OpenRouter,
             "claude" => Provider::Claude,
+            "codex" => Provider::Codex,
+            "copilot" => Provider::Copilot,
             _ => return None,
         })
     }
@@ -32,11 +35,24 @@ impl Provider {
     pub fn as_str(self) -> &'static str {
         match self {
             Provider::Compatible => "openai-compatible",
-            Provider::OpenAi => "openai",
             Provider::Mistral => "mistral",
-            Provider::Anthropic => "anthropic",
             Provider::OpenRouter => "openrouter",
             Provider::Claude => "claude",
+            Provider::Codex => "codex",
+            Provider::Copilot => "copilot",
+        }
+    }
+
+    /// A local command-line tool with its own login, not an HTTP API.
+    pub fn is_cli(self) -> bool {
+        matches!(self, Provider::Claude | Provider::Codex | Provider::Copilot)
+    }
+
+    /// CLIs summarize only; the others do both steps.
+    pub fn can(self, step: Step) -> bool {
+        match step {
+            Step::Transcribe => !self.is_cli(),
+            Step::Summarize => true,
         }
     }
 }
@@ -45,79 +61,4 @@ impl Provider {
 pub enum Step {
     Transcribe,
     Summarize,
-}
-
-/// Whether a transcription model returns timestamped segments.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Timestamps {
-    Segments,
-    TextOnly,
-    Unknown,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Capability {
-    /// `None`: the provider cannot transcribe.
-    pub transcription: Option<Timestamps>,
-}
-
-pub fn capability(p: Provider, model: &str) -> Capability {
-    let transcription = match (p, model) {
-        (Provider::Anthropic | Provider::Claude, _) => None,
-        // OpenRouter ids are `vendor/model`: the vendor's own rules apply.
-        (Provider::OpenRouter, m) => match m.split_once('/') {
-            Some(("openai", m)) => capability(Provider::OpenAi, m).transcription,
-            Some(("mistralai", m)) => capability(Provider::Mistral, m).transcription,
-            _ => Some(Timestamps::Unknown),
-        },
-        (Provider::OpenAi, "whisper-1") => Some(Timestamps::Segments),
-        (
-            Provider::OpenAi,
-            "gpt-transcribe"
-            | "gpt-4o-transcribe"
-            | "gpt-4o-mini-transcribe"
-            | "gpt-4o-transcribe-diarize",
-        ) => Some(Timestamps::TextOnly),
-        (Provider::Mistral, m) if m.starts_with("voxtral") => Some(Timestamps::Segments),
-        _ => Some(Timestamps::Unknown),
-    };
-    Capability { transcription }
-}
-
-pub fn supports(c: Capability, step: Step) -> bool {
-    match step {
-        Step::Transcribe => c.transcription.is_some(),
-        // Every provider can summarize.
-        Step::Summarize => true,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn whisper_has_segments_gpt4o_does_not() {
-        assert_eq!(
-            capability(Provider::OpenAi, "whisper-1").transcription,
-            Some(Timestamps::Segments)
-        );
-        assert_eq!(
-            capability(Provider::OpenAi, "gpt-4o-transcribe").transcription,
-            Some(Timestamps::TextOnly)
-        );
-        // Through OpenRouter, the vendor prefix picks the same rule.
-        assert_eq!(
-            capability(
-                Provider::OpenRouter,
-                "mistralai/voxtral-mini-transcribe-3-0"
-            )
-            .transcription,
-            Some(Timestamps::Segments)
-        );
-        assert_eq!(
-            capability(Provider::OpenRouter, "openai/gpt-transcribe").transcription,
-            Some(Timestamps::TextOnly)
-        );
-    }
 }

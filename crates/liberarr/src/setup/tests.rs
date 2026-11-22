@@ -11,10 +11,10 @@ LIBERARR_TRANSCRIBE_PROVIDER=mistral
 LIBERARR_TRANSCRIBE_BASE_URL=https://api.mistral.ai/v1
 LIBERARR_TRANSCRIBE_API_KEY=stored-transcribe-key
 LIBERARR_TRANSCRIBE_MODEL=voxtral-mini-transcribe-3
-LIBERARR_LLM_PROVIDER=anthropic
-LIBERARR_LLM_BASE_URL=https://api.anthropic.com
+LIBERARR_LLM_PROVIDER=mistral
+LIBERARR_LLM_BASE_URL=https://api.mistral.ai/v1
 LIBERARR_LLM_API_KEY=stored-llm-key
-LIBERARR_LLM_MODEL=claude-sonnet-5-5
+LIBERARR_LLM_MODEL=mistral-small-2603
 LIBERARR_CONTENT_LANGUAGE=fr
 LIBERARR_OBSIDIAN_DIR=/tmp
 ";
@@ -24,6 +24,8 @@ const SECRETS: [&str; 3] = [
     "LIBERARR_ADMIN_PASSWORD",
 ];
 const TYPED_KEY: &str = "typed-new-key-123";
+/// A scripted answer that takes the question's default, as an empty line does.
+const ACCEPT_DEFAULT: &str = "<default>";
 
 /// Answers the questions with scripted values and records everything it is shown.
 #[derive(Default)]
@@ -40,14 +42,17 @@ impl Prompter for Fake {
     fn is_interactive(&self) -> bool {
         true
     }
-    fn choose(&mut self, q: &str, o: &[Choice], _: Option<usize>) -> std::io::Result<Picked> {
+    fn choose(&mut self, q: &str, o: &[Choice], d: Option<usize>) -> std::io::Result<Picked> {
         self.seen.push(q.to_string());
         self.seen
             .extend(o.iter().map(|c| format!("{} {}", c.value, c.note)));
         if self.closed {
             return Err(std::io::ErrorKind::UnexpectedEof.into());
         }
-        Ok(self.choices.pop_front().expect("unexpected choice"))
+        match self.choices.pop_front().expect("unexpected choice") {
+            Picked::Text(t) if t == ACCEPT_DEFAULT => Ok(Picked::Option(d.expect("no default"))),
+            answer => Ok(answer),
+        }
     }
     fn text(&mut self, q: &str, d: Option<&str>) -> std::io::Result<String> {
         self.seen.push(format!("{q} {d:?}"));
@@ -76,6 +81,10 @@ fn ok(_: Provider, _: &str, _: &str) -> Result<Vec<String>, String> {
     Ok(vec![])
 }
 
+fn none_found(_: &str) -> Option<PathBuf> {
+    None
+}
+
 fn no_routes(_: &str, _: &str, _: &str) -> Result<Vec<String>, String> {
     Err("offline".into())
 }
@@ -87,11 +96,20 @@ fn written(plan: &Plan) -> HashMap<String, String> {
 #[test]
 fn set_values_are_never_overwritten_or_re_asked() {
     // A .env missing only the LLM model: nothing else may be asked or changed.
-    let partial = ENV.replace("LIBERARR_LLM_MODEL=claude-sonnet-5-5\n", "");
+    let partial = ENV.replace("LIBERARR_LLM_MODEL=mistral-small-2603\n", "");
     let env = parse_env(&partial);
     let mut p = Fake::default();
     p.choices.push_back(Picked::Text("my-model".into()));
-    let plan = run_setup(&mut p, &env, Language::En, Path::new("/h"), &ok, &no_routes).unwrap();
+    let plan = run_setup(
+        &mut p,
+        &env,
+        Language::En,
+        Path::new("/h"),
+        &ok,
+        &no_routes,
+        &none_found,
+    )
+    .unwrap();
     assert_eq!(
         plan.updates,
         [("LIBERARR_LLM_MODEL", "my-model".to_string())]
@@ -103,11 +121,12 @@ fn set_values_are_never_overwritten_or_re_asked() {
 fn reconfigure_keeps_the_secrets_and_never_shows_a_secret() {
     let env = parse_env(ENV);
     let mut p = Fake::default();
-    // Keep or reconfigure: reconfigure. Transcription: mistral again (index 2 of 4), key kept,
-    // first model. Summary: switch to openai (index 0), which forces a new key; a custom model.
+    // Keep or reconfigure: reconfigure. Transcription: mistral again (index 1 of 3), key kept,
+    // first model. Summary: switch to openai-compatible (index 0), which forces a new key; a
+    // custom model.
     p.choices.extend([
         Picked::Option(1),
-        Picked::Option(2),
+        Picked::Option(1),
         Picked::Option(0),
         Picked::Option(0),
         Picked::Text("gpt-custom".into()),
@@ -115,7 +134,16 @@ fn reconfigure_keeps_the_secrets_and_never_shows_a_secret() {
     ]);
     p.confirms.push_back(false);
     p.secrets.push_back(TYPED_KEY);
-    let plan = run_setup(&mut p, &env, Language::En, Path::new("/h"), &ok, &no_routes).unwrap();
+    let plan = run_setup(
+        &mut p,
+        &env,
+        Language::En,
+        Path::new("/h"),
+        &ok,
+        &no_routes,
+        &none_found,
+    )
+    .unwrap();
 
     let out = written(&plan);
     for k in SECRETS {
@@ -123,7 +151,7 @@ fn reconfigure_keeps_the_secrets_and_never_shows_a_secret() {
         assert!(plan.updates.iter().all(|(u, _)| *u != k), "{k} rewritten");
     }
     assert_eq!(out["LIBERARR_TRANSCRIBE_API_KEY"], "stored-transcribe-key");
-    assert_eq!(out["LIBERARR_LLM_PROVIDER"], "openai");
+    assert_eq!(out["LIBERARR_LLM_PROVIDER"], "openai-compatible");
     assert_eq!(out["LIBERARR_LLM_API_KEY"], TYPED_KEY);
     assert_eq!(out["LIBERARR_LLM_MODEL"], "gpt-custom");
     assert_eq!(out["LIBERARR_CONTENT_LANGUAGE"], "en");
@@ -143,6 +171,67 @@ fn reconfigure_keeps_the_secrets_and_never_shows_a_secret() {
     }
 }
 
+/// A provider that no longer exists (`anthropic`) is not read as a gateway: its URL, key and
+/// model are never kept, in either mode.
+#[test]
+fn a_removed_provider_is_asked_again_with_its_settings_dropped() {
+    let stale = ENV
+        .replace(
+            "LIBERARR_LLM_PROVIDER=mistral",
+            "LIBERARR_LLM_PROVIDER=anthropic",
+        )
+        .replace(
+            "https://api.mistral.ai/v1\nLIBERARR_LLM_API_KEY",
+            "https://api.anthropic.com\nLIBERARR_LLM_API_KEY",
+        )
+        .replace(
+            "LIBERARR_LLM_MODEL=mistral-small-2603",
+            "LIBERARR_LLM_MODEL=claude-sonnet-5-5",
+        );
+    let env = parse_env(&stale);
+    assert_eq!(env["LIBERARR_LLM_BASE_URL"], "https://api.anthropic.com");
+
+    // Interactive: the summary provider (mistral, index 1), then its URL, key and model.
+    let mut p = Fake::default();
+    p.choices.extend([Picked::Option(1), Picked::Option(0)]);
+    p.secrets.push_back(TYPED_KEY);
+    let plan = run_setup(
+        &mut p,
+        &env,
+        Language::En,
+        Path::new("/h"),
+        &ok,
+        &no_routes,
+        &none_found,
+    )
+    .unwrap();
+    assert!(
+        p.seen
+            .iter()
+            .any(|s| s.contains(&*t!("init.summarize.provider")))
+    );
+    let out = parse_env(&merge(&stale, &plan.updates));
+    assert_eq!(out["LIBERARR_LLM_PROVIDER"], "mistral");
+    assert_eq!(out["LIBERARR_LLM_BASE_URL"], "https://api.mistral.ai/v1");
+    assert_eq!(out["LIBERARR_LLM_API_KEY"], TYPED_KEY);
+    assert_eq!(out["LIBERARR_LLM_MODEL"], "mistral-small-2603");
+    assert!(plan.updates.iter().all(|(_, v)| !v.contains("anthropic")));
+
+    // Non-interactive: read again from the environment, the stored values ignored.
+    let given = |k: &str| match k {
+        "LIBERARR_LLM_PROVIDER" => Some("mistral".to_string()),
+        "LIBERARR_LLM_API_KEY" => Some(TYPED_KEY.to_string()),
+        "LIBERARR_LLM_MODEL" => Some("mistral-small-2603".to_string()),
+        _ => None,
+    };
+    let plan = from_env(&env, Language::En, Path::new("/h"), given, &none_found).unwrap();
+    let out = parse_env(&merge(&stale, &plan.updates));
+    assert_eq!(out["LIBERARR_LLM_PROVIDER"], "mistral");
+    assert_eq!(out["LIBERARR_LLM_BASE_URL"], "https://api.mistral.ai/v1");
+    assert_eq!(out["LIBERARR_LLM_API_KEY"], TYPED_KEY);
+    assert_eq!(out["LIBERARR_LLM_MODEL"], "mistral-small-2603");
+}
+
 #[test]
 fn closed_stdin_takes_the_default_content_language() {
     let env = parse_env(&ENV.replace("LIBERARR_CONTENT_LANGUAGE=fr\n", ""));
@@ -150,7 +239,16 @@ fn closed_stdin_takes_the_default_content_language() {
         closed: true,
         ..Fake::default()
     };
-    let plan = run_setup(&mut p, &env, Language::En, Path::new("/h"), &ok, &no_routes).unwrap();
+    let plan = run_setup(
+        &mut p,
+        &env,
+        Language::En,
+        Path::new("/h"),
+        &ok,
+        &no_routes,
+        &none_found,
+    )
+    .unwrap();
     assert_eq!(
         plan.updates,
         [("LIBERARR_CONTENT_LANGUAGE", "en".to_string())]
@@ -178,7 +276,16 @@ fn openrouter_routing_is_asked_per_step_from_the_model_providers() {
     };
     let mut p = Fake::default();
     p.choices.push_back(Picked::Option(0));
-    let plan = run_setup(&mut p, &env, Language::En, Path::new("/h"), &ok, &routes).unwrap();
+    let plan = run_setup(
+        &mut p,
+        &env,
+        Language::En,
+        Path::new("/h"),
+        &ok,
+        &routes,
+        &none_found,
+    )
+    .unwrap();
     assert_eq!(
         plan.updates,
         [("LIBERARR_TRANSCRIBE_ROUTING_ONLY", "mistral".to_string())]
@@ -192,16 +299,254 @@ fn non_interactive_writes_a_usable_notes_folder() {
     let env = parse_env(&ENV.replace("LIBERARR_OBSIDIAN_DIR=/tmp\n", ""));
     let dir = std::env::temp_dir().join(format!("liberarr-notes-{}", std::process::id()));
     let given = dir.display().to_string();
-    let plan = from_env(&env, Language::En, Path::new("/h"), |k| {
-        (k == "LIBERARR_OBSIDIAN_DIR").then(|| given.clone())
-    })
+    let plan = from_env(
+        &env,
+        Language::En,
+        Path::new("/h"),
+        |k| (k == "LIBERARR_OBSIDIAN_DIR").then(|| given.clone()),
+        &none_found,
+    )
     .unwrap();
     assert_eq!(plan.updates, [("LIBERARR_OBSIDIAN_DIR", given.clone())]);
     assert!(dir.is_dir());
     std::fs::remove_dir(&dir).unwrap();
 
-    let relative = from_env(&env, Language::En, Path::new("/h"), |k| {
-        (k == "LIBERARR_OBSIDIAN_DIR").then(|| "notes".to_string())
-    });
+    let relative = from_env(
+        &env,
+        Language::En,
+        Path::new("/h"),
+        |k| (k == "LIBERARR_OBSIDIAN_DIR").then(|| "notes".to_string()),
+        &none_found,
+    );
     assert!(relative.is_err());
+}
+
+/// The summary is optional: `none` is written when nothing is given (non-interactive), is read
+/// back as a choice, and is never asked about again. Transcription stays required.
+#[test]
+fn the_summary_engine_can_be_left_out() {
+    let without = ENV
+        .lines()
+        .filter(|l| !l.starts_with("LIBERARR_LLM_"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let env = parse_env(&without);
+    let plan = from_env(&env, Language::En, Path::new("/h"), |_| None, &none_found).unwrap();
+    assert_eq!(
+        plan.updates,
+        [("LIBERARR_LLM_PROVIDER", "none".to_string())]
+    );
+    // A URL given without a provider is not silently dropped.
+    let url = |k: &str| (k == "LIBERARR_LLM_BASE_URL").then(|| "https://gw.example/v1".to_string());
+    assert!(from_env(&env, Language::En, Path::new("/h"), url, &none_found).is_err());
+    // Nothing for transcription: still refused.
+    let none = parse_env(
+        &ENV.replace("LIBERARR_TRANSCRIBE_PROVIDER=mistral\n", "")
+            .replace(
+                "LIBERARR_TRANSCRIBE_BASE_URL=https://api.mistral.ai/v1\n",
+                "",
+            ),
+    );
+    assert!(from_env(&none, Language::En, Path::new("/h"), |_| None, &none_found).is_err());
+
+    let off = ENV
+        .replace(
+            "LIBERARR_LLM_PROVIDER=mistral",
+            "LIBERARR_LLM_PROVIDER=none",
+        )
+        .replace("LIBERARR_LLM_API_KEY=stored-llm-key\n", "")
+        .replace("LIBERARR_LLM_BASE_URL=https://api.mistral.ai/v1\n", "")
+        .replace("LIBERARR_LLM_MODEL=mistral-small-2603\n", "");
+    let env = parse_env(&off);
+    assert_eq!(
+        current_provider(
+            &env,
+            Step::Summarize,
+            "LIBERARR_LLM_PROVIDER",
+            "LIBERARR_LLM_BASE_URL"
+        ),
+        Current::Off
+    );
+    // Interactive: only the keep-or-reconfigure question, nothing about the summary.
+    let mut p = Fake::default();
+    p.choices.push_back(Picked::Option(0));
+    let plan = run_setup(
+        &mut p,
+        &env,
+        Language::En,
+        Path::new("/h"),
+        &ok,
+        &no_routes,
+        &none_found,
+    )
+    .unwrap();
+    assert!(plan.updates.is_empty());
+    assert!(
+        !p.seen
+            .iter()
+            .any(|s| s.contains(&*t!("init.summarize.provider")))
+    );
+    // Non-interactive: nothing to add, nothing fails.
+    let plan = from_env(&env, Language::En, Path::new("/h"), |_| None, &none_found).unwrap();
+    assert!(plan.updates.is_empty());
+
+    // Reconfigure the summary from a provider to `none` (the last entry, index 3).
+    let env = parse_env(ENV);
+    let mut p = Fake::default();
+    // Reconfigure, transcription (mistral, first model), summary (none), content language.
+    p.choices.extend([
+        Picked::Option(1),
+        Picked::Option(1),
+        Picked::Option(0),
+        Picked::Option(3),
+        Picked::Option(0),
+    ]);
+    p.confirms.push_back(false);
+    let plan = run_setup(
+        &mut p,
+        &env,
+        Language::En,
+        Path::new("/h"),
+        &ok,
+        &no_routes,
+        &none_found,
+    )
+    .unwrap();
+    assert_eq!(written(&plan)["LIBERARR_LLM_PROVIDER"], "none");
+}
+
+/// The summary menu offers the CLIs that are installed, defaults to the only one (the user still
+/// confirms) and writes the absolute program path with no URL or key.
+#[test]
+fn cli_choice_writes_program_path() {
+    let env = parse_env(&without_llm());
+    let only_codex = |name: &str| (name == "codex").then(|| PathBuf::from("/opt/x/codex"));
+    let mut p = Fake::default();
+    // Summary provider, then the model: both the default (the CLI's own model).
+    p.choices.extend([
+        Picked::Text(ACCEPT_DEFAULT.into()),
+        Picked::Text(ACCEPT_DEFAULT.into()),
+    ]);
+    let plan = run_setup(
+        &mut p,
+        &env,
+        Language::En,
+        Path::new("/h"),
+        &ok,
+        &no_routes,
+        &only_codex,
+    )
+    .unwrap();
+    assert_eq!(
+        plan.updates,
+        [
+            ("LIBERARR_LLM_PROVIDER", "codex".to_string()),
+            ("LIBERARR_LLM_PROGRAM", "/opt/x/codex".to_string()),
+            ("LIBERARR_LLM_MODEL", String::new()),
+        ]
+    );
+    assert!(p.seen.iter().any(|s| s.starts_with("codex ")));
+    assert!(!p.seen.iter().any(|s| s.starts_with("claude ")));
+
+    // Non-interactive: the program is resolved and written; a CLI that is not installed is refused.
+    let given = |k: &str| (k == "LIBERARR_LLM_PROVIDER").then(|| "codex".to_string());
+    let plan = from_env(&env, Language::En, Path::new("/h"), given, &only_codex).unwrap();
+    assert_eq!(
+        plan.updates,
+        [
+            ("LIBERARR_LLM_PROVIDER", "codex".to_string()),
+            ("LIBERARR_LLM_MODEL", String::new()),
+            ("LIBERARR_LLM_PROGRAM", "/opt/x/codex".to_string()),
+        ]
+    );
+    let claude = |k: &str| (k == "LIBERARR_LLM_PROVIDER").then(|| "claude".to_string());
+    assert!(from_env(&env, Language::En, Path::new("/h"), claude, &only_codex).is_err());
+
+    // An existing CLI setup without a program gets it (launchd has no shell PATH), once.
+    let old = parse_env(&ENV.replace(
+        "LIBERARR_LLM_PROVIDER=mistral",
+        "LIBERARR_LLM_PROVIDER=codex",
+    ));
+    let mut p = Fake::default();
+    p.choices.push_back(Picked::Option(0));
+    let plan = run_setup(
+        &mut p,
+        &old,
+        Language::En,
+        Path::new("/h"),
+        &ok,
+        &no_routes,
+        &only_codex,
+    )
+    .unwrap();
+    assert_eq!(
+        plan.updates,
+        [("LIBERARR_LLM_PROGRAM", "/opt/x/codex".to_string())]
+    );
+}
+
+#[test]
+fn no_cli_defaults_to_none() {
+    let env = parse_env(&without_llm());
+    let mut p = Fake::default();
+    p.choices.push_back(Picked::Text(ACCEPT_DEFAULT.into()));
+    let plan = run_setup(
+        &mut p,
+        &env,
+        Language::En,
+        Path::new("/h"),
+        &ok,
+        &no_routes,
+        &none_found,
+    )
+    .unwrap();
+    assert_eq!(
+        plan.updates,
+        [("LIBERARR_LLM_PROVIDER", "none".to_string())]
+    );
+}
+
+/// Only an executable file in an absolute PATH entry is a program: a relative entry would follow
+/// the working directory.
+#[test]
+fn find_program_needs_an_executable_file() {
+    use std::os::unix::fs::PermissionsExt;
+    let base = std::env::temp_dir().join(format!("liberarr-find-{}", std::process::id()));
+    let make = |dir: &str, mode: u32| {
+        let d = base.join(dir);
+        std::fs::create_dir_all(&d).unwrap();
+        let f = d.join("tool");
+        std::fs::write(&f, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&f, std::fs::Permissions::from_mode(mode)).unwrap();
+        d
+    };
+    let plain = make("plain", 0o644);
+    let exec = make("exec", 0o755);
+    let dir_named_tool = base.join("dir");
+    std::fs::create_dir_all(dir_named_tool.join("tool")).unwrap();
+    // Unit tests run in the crate folder: a path under target/ is relative to it.
+    let relative = PathBuf::from("target").join(format!("liberarr-find-{}", std::process::id()));
+    std::fs::create_dir_all(&relative).unwrap();
+    let rel_tool = relative.join("tool");
+    std::fs::write(&rel_tool, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&rel_tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let path = |dirs: &[&Path]| std::env::join_paths(dirs).unwrap();
+    for skipped in [&plain, &dir_named_tool, &relative] {
+        assert_eq!(find_program_in("tool", &path(&[skipped])), None);
+    }
+    assert_eq!(
+        find_program_in("tool", &path(&[&plain, &relative, &dir_named_tool, &exec])),
+        Some(exec.join("tool"))
+    );
+    std::fs::remove_dir_all(&base).unwrap();
+    std::fs::remove_dir_all(&relative).unwrap();
+}
+
+/// The .env without any summary setting.
+fn without_llm() -> String {
+    ENV.lines()
+        .filter(|l| !l.starts_with("LIBERARR_LLM_"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }

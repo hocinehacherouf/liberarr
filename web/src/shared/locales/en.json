@@ -31,6 +31,7 @@
     "retry": "Retry",
     "retryError": "Unable to retry the step.",
     "retryErrorWithDetail": "Unable to retry the step. {{error}}",
+    "noSummaryEngine": "No summary engine is configured. Run `liberarr init` to choose one.",
     "rerunTitle": "Run a step again",
     "rerunHelp": "The steps that follow will run again too.",
     "rerunStep": "Rerun {{step}}",
