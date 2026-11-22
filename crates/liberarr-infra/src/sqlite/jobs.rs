@@ -115,7 +115,8 @@ impl JobQueue for Db {
         expect_running(changed)
     }
 
-    /// Call once at startup, before claiming: it re-queues `running` jobs only when no other
+    /// Call once at startup, before claiming: it re-queues `running` jobs (failing those already at
+    /// 3 attempts: a job that keeps killing the process must not loop forever) only when no other
     /// worker is alive. Liveness is a lock on `<db>.workers`: every worker holds it shared for
     /// the life of the process (taken here), so an exclusive lock succeeds only when all
     /// earlier workers are dead.
@@ -127,9 +128,15 @@ impl JobQueue for Db {
         };
         let requeued = if sole {
             self.run(|c| {
+                let t = now();
+                c.execute(
+                    "UPDATE jobs SET status = 'failed', error = 'stopped after repeated crashes', updated_at = ?1
+                     WHERE status = 'running' AND attempts >= 3",
+                    [&t],
+                )?;
                 let n = c.execute(
                     "UPDATE jobs SET status = 'queued', updated_at = ?1 WHERE status = 'running'",
-                    [now()],
+                    [&t],
                 )?;
                 Ok(n as u64)
             })

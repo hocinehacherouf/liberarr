@@ -336,6 +336,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reset_stale_fails_a_job_that_keeps_crashing() {
+        let t = TempDb::new("crashloop");
+        let rec = {
+            let db = Db::open(&t.path()).unwrap();
+            let rec = db.add(new_rec("h1")).await.unwrap();
+            db.enqueue(rec, "transcribe").await.unwrap();
+            rec
+        };
+        for attempt in 1..=3 {
+            let db = Db::open(&t.path()).unwrap();
+            assert_eq!(db.reset_stale().await.unwrap(), u64::from(attempt > 1));
+            assert_eq!(db.claim_next().await.unwrap().unwrap().attempts, attempt);
+        }
+        let db = Db::open(&t.path()).unwrap();
+        assert_eq!(db.reset_stale().await.unwrap(), 0);
+        let job = &db.list_for(rec).await.unwrap()[0];
+        assert_eq!(job.status, JobStatus::Failed);
+        assert_eq!(job.error.as_deref(), Some("stopped after repeated crashes"));
+    }
+
+    #[tokio::test]
     async fn reset_stale_spares_jobs_of_live_worker() {
         let t = TempDb::new("live");
         let a = Db::open(&t.path()).unwrap();

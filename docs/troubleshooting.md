@@ -39,7 +39,12 @@ The device talks to one Bluetooth client at a time, and sleeps when idle.
 - **HTTP 429 or overloaded**: already retried 3 times. Wait, then `rerun`. Check your provider's quota or credits.
 - **Model not found**: the model name is wrong or retired. Run `liberarr init` and pick one from the list.
 - **File too large**: only Ogg files (the device format) are split for upload. Convert another format to Ogg, or keep it under about 24 MB.
-- **No timestamps / playback not synchronized**: the transcription model returns text only. Use `whisper-1` or a `voxtral` model.
+- **`local transcription reads Ogg Opus only`**: the file is not Ogg Opus. Convert it to Ogg Opus, or use a cloud transcriber ([AI providers](ai-providers.md#local-transcription)).
+- **Model download fails or is slow**: the first local transcription downloads 575 MB from `huggingface.co`. Check the connection and run `rerun` again; a download that fails its size or checksum check is discarded, never kept. For an offline machine, use a cloud transcriber or copy `<LIBERARR_HOME>/models` from another machine.
+- **Local transcription is very slow**: expected on a CPU-only machine or a NAS, see [speed](ai-providers.md#local-transcription). Use a cloud transcriber for those recordings.
+- **`this CPU lacks the instructions local transcription needs`**: the job fails because the CPU has no AVX2 (x86-64) or Armv8.2-A (ARM). Use a cloud transcriber.
+- **`recording too long for local transcription`**: over 12 hours. Split the audio or use a cloud transcriber.
+- **No timestamps / playback not synchronized**: the transcription model returns text only. Use `local`, `whisper-1` or a `voxtral` model.
 - **`done, no speech detected`**: the recording has no speech; no summary or note is made, on purpose.
 - **Work stuck after a crash**: the next `serve`, `tui`, `pull` or `process` puts interrupted tasks back in the queue.
 

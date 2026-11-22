@@ -10,6 +10,7 @@ Everything lives in `LIBERARR_HOME`, default `~/.liberarr`:
 | `liberarr.db` | The database: recordings, transcripts, summaries, jobs. |
 | `audio/` | The original audio, never modified. |
 | `device/` | Device keys (encrypted) and partial downloads. |
+| `models/` | The local Whisper model and voice-activity model, downloaded once (about 575 MB). Not in backups. |
 | `obsidian/` | Exported notes, unless `LIBERARR_OBSIDIAN_DIR` is set. |
 
 `LIBERARR_HOME` must be on a local disk: the job worker uses file locks, which are unreliable on network filesystems and some Docker bind mounts.
@@ -29,10 +30,10 @@ Lines are `NAME=value`; `#` starts a comment.
 | `LIBERARR_SECRET_KEY` | Encrypts the stored device keys. At least 32 characters. **Never change it**: the stored device keys would become unreadable. |
 | `LIBERARR_API_KEY` | Key for scripts calling the web API (`X-API-Key` header). At least 32 characters. |
 | `LIBERARR_ADMIN_PASSWORD` | Web UI password of the `admin` user. At least 32 characters. |
-| `LIBERARR_TRANSCRIBE_PROVIDER` | Transcription provider: `openai`, `openai-compatible`, `mistral` or `openrouter`. Empty means `openai-compatible`. |
-| `LIBERARR_TRANSCRIBE_BASE_URL` | Base URL of its API (`http://` or `https://`). |
-| `LIBERARR_TRANSCRIBE_API_KEY` | Its API key. |
-| `LIBERARR_TRANSCRIBE_MODEL` | Transcription model. |
+| `LIBERARR_TRANSCRIBE_PROVIDER` | Transcription provider: `local` (default, Whisper on this machine, nothing to set), `openai`, `openai-compatible`, `mistral` or `openrouter`. With no transcription line at all it is `local`; a URL or a model without a provider means `openai-compatible`. |
+| `LIBERARR_TRANSCRIBE_BASE_URL` | Base URL of its API (`http://` or `https://`). Not used with `local`. |
+| `LIBERARR_TRANSCRIBE_API_KEY` | Its API key. Not used with `local`. |
+| `LIBERARR_TRANSCRIBE_MODEL` | Transcription model. Not used with `local`. |
 | `LIBERARR_LLM_PROVIDER` | Summary provider: `none` (default: transcript only), `claude`, `codex`, `copilot`, `openai-compatible`, `mistral` or `openrouter`. See [AI providers](ai-providers.md). |
 | `LIBERARR_LLM_BASE_URL`, `LIBERARR_LLM_API_KEY`, `LIBERARR_LLM_MODEL` | Same, for the summary. With `claude`, `codex` or `copilot` there is no URL and no key, and the model is optional (empty: the CLI's own default). Not used with `none`. |
 | `LIBERARR_LLM_PROGRAM` | `claude`, `codex` and `copilot` only: absolute path of the CLI, found by `init`. Empty: looked up on `PATH`. |
@@ -47,7 +48,7 @@ Lines are `NAME=value`; `#` starts a comment.
 | `CLAUDE_CODE_OAUTH_TOKEN` | `claude` summary provider, for a `serve` that cannot reach your `claude` login (a server): the token from `claude setup-token`. Passed to `claude` only. See [AI providers](ai-providers.md#subscription-clis). |
 | `LIBERARR_LANG` | Language of the command line (messages and `--help`): `en` or `fr`. Default: the OS locale (`LC_ALL`, `LC_MESSAGES`, `LANG`), else English. |
 | `LIBERARR_COOKIE_SECURE` | `true` to set the `Secure` flag on the login cookie, when the web UI is served over HTTPS. |
-| `LIBERARR_TRANSCRIBE_VOCABULARY` | Names, acronyms and jargon the transcription should spell your way, comma-separated: `Liberarr, Plaud Note, HbA1c`. Sent with every audio upload to the transcription provider (see [Privacy](privacy.md)): as `context_bias` with `mistral`. Other providers ignore it, and Liberarr prints a warning at start. Keep the list short: Mistral counts it in the same context window as the audio, and a request over the limit fails. |
+| `LIBERARR_TRANSCRIBE_VOCABULARY` | Names, acronyms and jargon the transcription should spell your way, comma-separated: `Liberarr, Plaud Note, HbA1c`. Sent with every audio upload to the transcription provider (see [Privacy](privacy.md)): as `context_bias` with `mistral`. `local` and the other providers ignore it, and Liberarr prints a warning at start. Keep the list short: Mistral counts it in the same context window as the audio, and a request over the limit fails. |
 
 The note export is one-way. In an existing note, Liberarr writes only between `%% liberarr:start %%` and `%% liberarr:end %%`: your own text outside these markers is kept.
 
@@ -56,7 +57,7 @@ The note export is one-way. In an existing note, Liberarr writes only between `%
 - Command line and `--help`: `LIBERARR_LANG` in `.env`, else the OS locale, else English.
 - Web UI: the browser language.
 - Summaries and note headings: `LIBERARR_CONTENT_LANGUAGE`.
-- Transcription: no language is forced, so a recording mixing French and English works.
+- Transcription: no language is forced, so a recording mixing French and English works (see [local transcription](ai-providers.md#local-transcription) for the limits).
 
 ## Shell-only settings
 

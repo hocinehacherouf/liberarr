@@ -31,6 +31,12 @@ tower = { version = "=0.5.3", features = ["util"] }
 tower-http = { version = "=0.7.1", default-features = false, features = ["fs"] }
 subtle = "=2.6.1"
 btleplug = "=0.13.5"
+# Opus decoding; the default `bundled` feature of opusic-sys builds libopus from source (needs cmake).
+opus = "=0.4.0"
+# Local transcription (whisper.cpp built from the bundled sources, needs cmake and a C++ compiler). The `metal`
+# feature is added for Apple silicon in liberarr-infra. whisper-rs-sys forwards GGML_*, WHISPER_* and CMAKE_*
+# environment variables to cmake, so CI sets GGML_NATIVE=OFF.
+whisper-rs = { version = "=0.16.0", default-features = false }
 futures = "=0.3.34"
 base64 = "=0.23.1"
 hkdf = "=0.13.0"

@@ -47,7 +47,8 @@ fn left_out(home: &Path, dir: &Path, name: &OsStr) -> bool {
     let name = name.to_string_lossy();
     let top = dir == home;
     name.ends_with(".tmp")
-        || (top && (name.starts_with(".env") || name.starts_with("liberarr.db")))
+        // models/: downloaded files (hundreds of MB) that are fetched again when missing.
+        || (top && (name.starts_with(".env") || name.starts_with("liberarr.db") || name == "models"))
         || (dir == home.join("device") && name == "partial")
 }
 

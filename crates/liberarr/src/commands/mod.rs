@@ -32,6 +32,14 @@ pub fn note_content_language(cfg: &crate::config::Config) {
     }
 }
 
+/// One line before a worker starts (`serve`, `process`, `pull`) when the first transcription will download the Whisper model.
+/// Not for the TUI, which shares the worker and owns the screen.
+pub fn note_model_download(app: &App) {
+    if app.model_download_pending() {
+        eprintln!("{}", t!("transcribe.model_download_notice"));
+    }
+}
+
 /// Reads one line. `hidden` input is not echoed on a terminal; piped input is read as is.
 pub fn ask(prompt: &str, hidden: bool) -> std::io::Result<String> {
     let line = if hidden && std::io::stdin().is_terminal() {
@@ -54,6 +62,7 @@ pub fn ask(prompt: &str, hidden: bool) -> std::io::Result<String> {
 /// Runs the queue to the end (also work left by an earlier `pull --no-process`), then prints
 /// where each of `ids` stands. `false` if one failed.
 pub async fn process_and_report(app: &App, ids: &[i64]) -> Result<bool, liberarr_core::Error> {
+    note_model_download(app);
     eprintln!("{}", t!("process.running"));
     app.drain().await?;
     if ids.is_empty() {

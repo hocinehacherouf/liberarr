@@ -20,6 +20,7 @@ pub async fn list_models(provider: Provider, base_url: &str, api_key: &str) -> R
                 provider.as_str()
             )));
         }
+        Provider::Local => return Err(Error::Provider("local has no model list".into())),
         // `/models` is public (it proves nothing about the key) and lists 400+ entries: test the
         // key on `/key` and offer nothing to pick from.
         Provider::OpenRouter => {

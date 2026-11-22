@@ -2,22 +2,23 @@
 
 Liberarr uses two AI steps, each with its own provider (its own `LIBERARR_TRANSCRIBE_*` or `LIBERARR_LLM_*` settings):
 
-1. **Transcription**: the audio is sent, a timestamped transcript comes back.
+1. **Transcription**: runs on your machine by default (`local`, Whisper): nothing is sent. With a cloud provider, the audio is sent and a timestamped transcript comes back.
 2. **Summary** (optional): the transcript is sent, a summary, a mind map and an action table come back. The default is `none`: you get the transcript and a note with the transcript only, and no transcript leaves your machine at this step.
 
-`init` asks for both, tests each key (or each CLI) and proposes models. You can use one provider for both steps or two different ones.
+`init` asks for both (transcription is `local` unless you pick another), tests each key (or each CLI) and proposes models. You can use one provider for both steps or two different ones.
 
 ## Which provider for which step
 
 | Provider (`*_PROVIDER`) | Transcription | Summary | Notes |
 |---|---|---|---|
+| `local` | yes (default) | no | Whisper on your machine, no key. See [Local transcription](#local-transcription). |
 | `none` | no | yes (default) | No summary: the transcript only. |
 | `mistral` | yes | yes | Transcription with `voxtral-mini-transcribe-3` (recommended, segment timestamps). Summary: for example `mistral-small-2603`. |
 | `openai-compatible` | yes | yes | Any OpenAI-compatible endpoint: OpenAI itself, a LiteLLM gateway, Groq, or Gemini's OpenAI-compatible URL (summary only). `openai` is accepted as another name for it. Transcription needs `/audio/transcriptions` with `response_format=verbose_json` for timestamps (`whisper-1` on OpenAI): a model that returns text only gives no timestamps, so playback is not synchronized with the text. |
 | `openrouter` | yes | yes | See [OpenRouter](#openrouter). |
 | `claude`, `codex`, `copilot` | no | yes | Your own signed-in command-line tool and its subscription: no URL, no key. See [Subscription CLIs](#subscription-clis). |
 
-None of the CLIs can transcribe audio: with one of them for the summary, keep another provider for transcription.
+None of the CLIs can transcribe audio, and `local` cannot summarize: they combine freely, for example `local` transcription with a `claude` summary.
 
 `anthropic` (the Anthropic API) is no longer supported. A `.env` that still says `anthropic` is refused at start with a message naming the variable. Use `claude` (your Claude subscription) or `openrouter`, then run `liberarr init` again.
 
@@ -25,7 +26,18 @@ None of the CLIs can transcribe audio: with one of them for the summary, keep an
 
 The maintainer runs `mistral`, `claude`, `codex` and `copilot` against the real services. `openrouter` and `openai-compatible` depend on the endpoint behind them. If a provider fails for you, please [open an issue](https://github.com/hocinehacherouf/liberarr/issues) with the error text: it never contains your key.
 
-Transcription forces no language: a recording mixing French and English works. Pick a multilingual model.
+Transcription forces no language: a recording mixing French and English works. Pick a multilingual model (the local one is).
+
+## Local transcription
+
+`LIBERARR_TRANSCRIBE_PROVIDER=local` is the default, also when no transcription line is in the `.env`. It runs [whisper.cpp](https://github.com/ggml-org/whisper.cpp) inside the binary: no URL, key or model to set.
+
+- **One-time download.** The first transcription downloads two files into `<LIBERARR_HOME>/models`, checks their SHA-256 and keeps them: Whisper large-v3-turbo, quantized (575 MB) and the Silero voice-activity model (0.9 MB), both from Hugging Face. After that it works fully offline. `liberarr backup` skips this folder; it is downloaded again when missing.
+- **Speed.** An Apple Silicon Mac (Metal) takes a few minutes per hour of audio. A CPU-only machine or a NAS is much slower, and a long recording can take longer than it lasts.
+- **CPU.** Release builds need AVX2 on x86-64 (any CPU since about 2013-2015) and Armv8.2-A on ARM Linux (Raspberry Pi 5 and recent servers, not a Pi 4). On a CPU without it the job fails with a clear message: use a cloud transcriber.
+- **Memory.** About 1 GB for the model, plus about 230 MB per hour of audio. Recordings over 12 hours are refused.
+- **Ogg only.** It reads the Ogg Opus files of the device, and files imported as Ogg Opus. Any other format (mp3, m4a, wav…) needs a cloud transcriber, or a conversion to Ogg Opus first.
+- **Mixed languages.** The language is re-detected at least every 5 minutes of speech and never forced. A recording that switches language between sentences is handled well; heavy switching inside one sentence may still come out in a single language. Check such a recording, and use a cloud transcriber if it matters.
 
 ## Subscription CLIs
 
@@ -55,7 +67,7 @@ OpenRouter's OpenAI-compatible API (`https://openrouter.ai/api/v1`), with an opt
 
 Liberarr itself is free. You pay your providers, on your own accounts:
 
-- **Transcription**: usually billed per minute of audio. Each recording is transcribed once.
+- **Transcription**: free with `local`. A cloud provider usually bills per minute of audio; each recording is transcribed once.
 - **Summary**: billed per token (transcript in, summary out). One request per recording, plus one more when the first answer is malformed.
 - **`claude`, `codex`, `copilot`**: count against your subscription limits, not billed per token.
 - **`none`**: no summary, no cost.
@@ -64,7 +76,7 @@ Liberarr itself is free. You pay your providers, on your own accounts:
 
 What can cost more than once:
 
-- `rerun` runs the step again **and the steps after it**: `rerun --step transcribe` pays a transcription and a summary again.
+- `rerun` runs the step again **and the steps after it**: `rerun --step transcribe` pays a (cloud) transcription and a summary again.
 - Rate limits (HTTP 429), overloads (503, 529) and connection failures are retried automatically, at most 3 attempts in all. A transcription that timed out is not retried (the provider may still be working on it, and billing it). When a provider asks to wait more than 60 s, the job fails at once; run `rerun` later.
 
 Check prices on each provider's pricing page: they change often.

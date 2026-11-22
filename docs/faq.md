@@ -24,10 +24,10 @@ No. It downloads them and keeps track of what it already has.
 Yes: `liberarr process <files…>`. See [First run](first-run.md#other-commands).
 
 **Can it run without any AI provider, fully offline?**
-Not yet. Transcription needs a provider; local transcription is planned for a later version. The summary is optional: with `LIBERARR_LLM_PROVIDER=none` (the default) no transcript is sent anywhere and you get the transcript and a note with the transcript only.
+Yes. Transcription is local by default (Whisper, one-time 575 MB download, then offline) and the summary is optional: with `LIBERARR_LLM_PROVIDER=none` (the default) nothing leaves your machine and you get the transcript and a note with the transcript only. See [local transcription](ai-providers.md#local-transcription) for speed and limits.
 
 **Which languages does transcription support?**
-Whatever your transcription model supports. No language is forced, so a recording mixing French and English works with a multilingual model.
+Whatever your transcription model supports. No language is forced, so a recording mixing French and English works with a multilingual model, including the local one (the language is re-detected at least every 5 minutes; heavy switching inside one sentence may come out in one language).
 
 **In which language are summaries written?**
 `LIBERARR_CONTENT_LANGUAGE`, `en` or `fr`, asked by `init`. See [Configuration](configuration.md#language).

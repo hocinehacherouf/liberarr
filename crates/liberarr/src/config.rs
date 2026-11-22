@@ -133,6 +133,14 @@ fn load_from(
     let profile = |p: &str, step: Step| -> Result<Profile, String> {
         let var = format!("LIBERARR_{p}_PROVIDER");
         let provider = match get(&var).filter(|v| !v.trim().is_empty()) {
+            // Nothing set for transcription: Local. A URL or a model alone means a gateway.
+            None if step == Step::Transcribe
+                && ["BASE_URL", "MODEL"]
+                    .iter()
+                    .all(|k| get(&format!("LIBERARR_{p}_{k}")).is_none_or(|v| is_unset(&v))) =>
+            {
+                Provider::Local
+            }
             None => Provider::Compatible,
             Some(v) => Provider::parse(v.trim()).ok_or_else(|| match v.trim() {
                 // The `anthropic` adapter is gone: say what to use instead.
@@ -140,7 +148,7 @@ fn load_from(
                     "config.provider_removed",
                     var = var,
                     alternatives = match step {
-                        Step::Transcribe => "mistral, openrouter",
+                        Step::Transcribe => "local, mistral, openrouter",
                         Step::Summarize => "claude, codex, copilot, openrouter",
                     }
                 )
@@ -149,21 +157,13 @@ fn load_from(
                     "config.provider_unknown",
                     var = var,
                     providers = match step {
-                        Step::Transcribe => "openai-compatible, mistral, openrouter",
+                        Step::Transcribe => "local, openai-compatible, mistral, openrouter",
                         Step::Summarize =>
                             "openai-compatible, mistral, openrouter, claude, codex, copilot",
                     }
                 )
                 .into_owned(),
             })?,
-        };
-        // A CLI picks its own default model when none is set.
-        let model = if provider.is_cli() {
-            get(&format!("LIBERARR_{p}_MODEL"))
-                .filter(|v| !is_unset(v))
-                .map_or_else(String::new, |v| v.trim().to_string())
-        } else {
-            need(&format!("LIBERARR_{p}_MODEL"))?
         };
         if !provider.can(step) {
             return Err(match step {
@@ -172,6 +172,25 @@ fn load_from(
             }
             .into_owned());
         }
+        // Local runs on this computer: no URL, key or model.
+        if provider == Provider::Local {
+            return Ok(Profile {
+                provider,
+                base_url: String::new(),
+                api_key: String::new(),
+                model: String::new(),
+                routing_only: Vec::new(),
+                program: None,
+            });
+        }
+        // A CLI picks its own default model when none is set.
+        let model = if provider.is_cli() {
+            get(&format!("LIBERARR_{p}_MODEL"))
+                .filter(|v| !is_unset(v))
+                .map_or_else(String::new, |v| v.trim().to_string())
+        } else {
+            need(&format!("LIBERARR_{p}_MODEL"))?
+        };
         // A CLI uses its own login: no URL, no key.
         let (base_url, api_key) = if provider.is_cli() {
             (String::new(), String::new())
@@ -408,6 +427,31 @@ LIBERARR_LLM_MODEL=gpt
         // `openai` still works, as an alias of `openai-compatible`.
         let cfg = load_text(&provider_line("LIBERARR_LLM_PROVIDER", "openai")).unwrap();
         assert_eq!(cfg.llm.unwrap().provider, Provider::Compatible);
+    }
+
+    /// Local Whisper is the transcriber when nothing says otherwise; it needs no URL, key or model.
+    #[test]
+    fn transcription_defaults_to_local() {
+        let no_transcribe: String = VALID
+            .lines()
+            .filter(|l| !l.contains("_TRANSCRIBE_"))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        let t = load_text(&no_transcribe).unwrap().transcribe;
+        assert_eq!(t.provider, Provider::Local);
+        assert!(t.base_url.is_empty() && t.api_key.is_empty() && t.model.is_empty());
+        let t = load_text(&format!(
+            "{no_transcribe}LIBERARR_TRANSCRIBE_PROVIDER=local\n"
+        ));
+        assert_eq!(t.unwrap().transcribe.provider, Provider::Local);
+        // A URL or a model without a provider stays an openai-compatible endpoint.
+        let model_only = format!("{no_transcribe}LIBERARR_TRANSCRIBE_MODEL=whisper-1\n");
+        assert!(load_text(&model_only).is_err());
+        // Local cannot summarize.
+        let msg = load_text(&provider_line("LIBERARR_LLM_PROVIDER", "local"))
+            .err()
+            .unwrap();
+        assert!(msg.contains("LIBERARR_LLM_PROVIDER"), "{msg}");
     }
 
     #[test]

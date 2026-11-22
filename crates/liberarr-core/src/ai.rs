@@ -16,6 +16,8 @@ pub enum Provider {
     Codex,
     /// The user's logged-in GitHub `copilot` CLI, summaries only.
     Copilot,
+    /// whisper.cpp on this computer, transcription only: no URL, key or model.
+    Local,
 }
 
 impl Provider {
@@ -28,6 +30,7 @@ impl Provider {
             "claude" => Provider::Claude,
             "codex" => Provider::Codex,
             "copilot" => Provider::Copilot,
+            "local" => Provider::Local,
             _ => return None,
         })
     }
@@ -40,6 +43,7 @@ impl Provider {
             Provider::Claude => "claude",
             Provider::Codex => "codex",
             Provider::Copilot => "copilot",
+            Provider::Local => "local",
         }
     }
 
@@ -48,11 +52,11 @@ impl Provider {
         matches!(self, Provider::Claude | Provider::Codex | Provider::Copilot)
     }
 
-    /// CLIs summarize only; the others do both steps.
+    /// CLIs and Local do one step each; the others do both.
     pub fn can(self, step: Step) -> bool {
         match step {
             Step::Transcribe => !self.is_cli(),
-            Step::Summarize => true,
+            Step::Summarize => self != Provider::Local,
         }
     }
 }

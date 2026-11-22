@@ -19,7 +19,9 @@ pub fn defaults(p: Provider, step: Step) -> (Option<&'static str>, Option<&'stat
             Some("mistralai/voxtral-mini-transcribe-3-0"),
         ),
         (Provider::OpenRouter, Step::Summarize) => (Some(OPENROUTER_URL), None),
-        // A CLI has its own default model.
-        (Provider::Claude | Provider::Codex | Provider::Copilot, _) => (None, None),
+        // A CLI has its own default model; Local needs neither URL nor model.
+        (Provider::Claude | Provider::Codex | Provider::Copilot | Provider::Local, _) => {
+            (None, None)
+        }
     }
 }

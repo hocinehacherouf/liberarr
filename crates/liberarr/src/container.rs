@@ -15,10 +15,11 @@ use liberarr_infra::agent_cli::{AgentCli, Preset};
 use liberarr_infra::ai::OpenAiCompat;
 use liberarr_infra::files::{FsAudioStore, FsNoteStore, FsPartialStore, OggSplitter};
 use liberarr_infra::keystore::FileKeyStore;
+use liberarr_infra::local_whisper::LocalWhisper;
 use liberarr_infra::mistral::MistralTranscriber;
 use liberarr_infra::sqlite::Db;
 use liberarr_web::Backend;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct App {
     pub cfg: Config,
@@ -33,6 +34,7 @@ pub struct App {
 enum AnyTranscriber {
     Compat(OpenAiCompat),
     Mistral(MistralTranscriber),
+    Local(LocalWhisper),
 }
 
 enum AnyLlm {
@@ -40,12 +42,12 @@ enum AnyLlm {
     Cli(AgentCli),
 }
 
-/// Whether the provider documents a vocabulary field: only Mistral (`context_bias`).
+/// Whether the provider takes a vocabulary: only Mistral (`context_bias`).
 fn takes_vocabulary(p: &Profile) -> bool {
     p.provider == Provider::Mistral
 }
 
-fn transcriber(p: &Profile, vocabulary: &[String]) -> AnyTranscriber {
+fn transcriber(p: &Profile, vocabulary: &[String], home: &Path) -> AnyTranscriber {
     let (url, key, model) = (p.base_url.clone(), p.api_key.clone(), p.model.clone());
     // Elsewhere it is ignored, with a warning at start (`warnings`).
     let vocabulary = if takes_vocabulary(p) {
@@ -54,6 +56,7 @@ fn transcriber(p: &Profile, vocabulary: &[String]) -> AnyTranscriber {
         Vec::new()
     };
     match p.provider {
+        Provider::Local => AnyTranscriber::Local(LocalWhisper::new(home.join("models"))),
         Provider::Mistral => AnyTranscriber::Mistral(
             MistralTranscriber::new(url, key, model).with_context_bias(vocabulary),
         ),
@@ -92,6 +95,7 @@ impl Transcriber for AnyTranscriber {
         match self {
             Self::Compat(t) => t.transcribe(audio, filename).await,
             Self::Mistral(t) => t.transcribe(audio, filename).await,
+            Self::Local(t) => t.transcribe(audio, filename).await,
         }
     }
 
@@ -99,6 +103,7 @@ impl Transcriber for AnyTranscriber {
         match self {
             Self::Compat(t) => t.engine(),
             Self::Mistral(t) => t.engine(),
+            Self::Local(t) => t.engine(),
         }
     }
 }
@@ -119,7 +124,7 @@ impl App {
             .map_err(|e| Error::Storage(format!("create home: {}", e.kind())))?;
         let db = Db::open(&cfg.home.join("liberarr.db"))?;
         Ok(App {
-            transcriber: transcriber(&cfg.transcribe, &cfg.vocabulary),
+            transcriber: transcriber(&cfg.transcribe, &cfg.vocabulary, &cfg.home),
             llm: cfg
                 .llm
                 .as_ref()
@@ -138,6 +143,11 @@ impl App {
             jobs: &self.db,
             store: &self.audio,
         }
+    }
+
+    /// The local Whisper model is not on disk yet: the first transcription downloads it.
+    pub fn model_download_pending(&self) -> bool {
+        matches!(&self.transcriber, AnyTranscriber::Local(t) if t.models_missing())
     }
 
     /// Runs queued jobs until the queue is empty. `Db::reset_stale` must have run once before.
@@ -194,7 +204,12 @@ impl StepHandler for App {
                 splitter: &OggSplitter,
                 transcriber: &self.transcriber,
                 transcripts: &self.db,
-                max_chunk_bytes: DEFAULT_UPLOAD_BYTES,
+                // Local: the whole file is one chunk, `LocalWhisper` chunks by speech itself.
+                max_chunk_bytes: if self.cfg.transcribe.provider == Provider::Local {
+                    usize::MAX
+                } else {
+                    DEFAULT_UPLOAD_BYTES
+                },
             }
             .run(id)
             .await
@@ -384,6 +399,7 @@ mod tests {
             Provider::Mistral,
             "voxtral-mini-transcribe-3"
         )));
+        assert!(!takes_vocabulary(&p(Provider::Local, "")));
         for (provider, model) in [
             (Provider::OpenRouter, "openai/gpt-transcribe"),
             (Provider::Compatible, "whisper-1"),

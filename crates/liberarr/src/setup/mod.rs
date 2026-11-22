@@ -394,6 +394,13 @@ fn configure(
                 chosen
             }
         };
+        // Runs on this computer: nothing to ask, the model is downloaded on the first transcription.
+        if provider == Provider::Local {
+            if chosen_now {
+                p.info(&t!("init.local_model_note"));
+            }
+            continue;
+        }
         // Another provider: the old URL, key and model do not apply.
         let changed = (chosen_now && !reconf)
             || (reconf && known != Some(provider))
@@ -604,10 +611,10 @@ fn ask_provider(
     known: Option<Provider>,
     clis: &[Provider],
 ) -> SetupResult<Option<Provider>> {
-    // The installed CLIs first, then the APIs.
-    let mut options: Vec<Option<Provider>> = clis
-        .iter()
-        .copied()
+    // Local first (transcription only), then the installed CLIs, then the APIs.
+    let mut options: Vec<Option<Provider>> = [Provider::Local]
+        .into_iter()
+        .chain(clis.iter().copied())
         .chain([
             Provider::Compatible,
             Provider::Mistral,

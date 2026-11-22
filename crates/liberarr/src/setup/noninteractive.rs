@@ -48,14 +48,18 @@ pub fn from_env(
             Current::Off => continue,
             Current::Unset => {
                 let given = from_env(provider_var)?;
+                let nothing = given.is_none()
+                    && from_env(url_var)?.is_none()
+                    && from_env(model_var)?.is_none();
                 // The summary is optional: `none`, or nothing about it at all, turns it off.
-                if step == Step::Summarize
-                    && (given.as_deref() == Some(NONE)
-                        || (given.is_none()
-                            && from_env(url_var)?.is_none()
-                            && from_env(model_var)?.is_none()))
-                {
+                if step == Step::Summarize && (given.as_deref() == Some(NONE) || nothing) {
                     plan.updates.push((provider_var, NONE.to_string()));
+                    continue;
+                }
+                // Nothing about transcription: it runs locally.
+                if step == Step::Transcribe && nothing {
+                    plan.updates
+                        .push((provider_var, Provider::Local.as_str().to_string()));
                     continue;
                 }
                 let v = given.ok_or_else(|| missing(provider_var))?;
@@ -67,6 +71,10 @@ pub fn from_env(
                 p
             }
         };
+        // Runs on this computer: no URL, key or model.
+        if provider == Provider::Local {
+            continue;
+        }
         let (default_url, default_model) = providers::defaults(provider, step);
         // A value that is not a provider: what is stored for the step is read again from the
         // environment.

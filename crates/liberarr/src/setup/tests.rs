@@ -121,12 +121,12 @@ fn set_values_are_never_overwritten_or_re_asked() {
 fn reconfigure_keeps_the_secrets_and_never_shows_a_secret() {
     let env = parse_env(ENV);
     let mut p = Fake::default();
-    // Keep or reconfigure: reconfigure. Transcription: mistral again (index 1 of 3), key kept,
+    // Keep or reconfigure: reconfigure. Transcription: mistral again (index 2 of 4), key kept,
     // first model. Summary: switch to openai-compatible (index 0), which forces a new key; a
     // custom model.
     p.choices.extend([
         Picked::Option(1),
-        Picked::Option(1),
+        Picked::Option(2),
         Picked::Option(0),
         Picked::Option(0),
         Picked::Text("gpt-custom".into()),
@@ -322,7 +322,7 @@ fn non_interactive_writes_a_usable_notes_folder() {
 }
 
 /// The summary is optional: `none` is written when nothing is given (non-interactive), is read
-/// back as a choice, and is never asked about again. Transcription stays required.
+/// back as a choice, and is never asked about again. Transcription then defaults to local.
 #[test]
 fn the_summary_engine_can_be_left_out() {
     let without = ENV
@@ -339,7 +339,7 @@ fn the_summary_engine_can_be_left_out() {
     // A URL given without a provider is not silently dropped.
     let url = |k: &str| (k == "LIBERARR_LLM_BASE_URL").then(|| "https://gw.example/v1".to_string());
     assert!(from_env(&env, Language::En, Path::new("/h"), url, &none_found).is_err());
-    // Nothing for transcription: still refused.
+    // Nothing for transcription: local, not an error.
     let none = parse_env(
         &ENV.replace("LIBERARR_TRANSCRIBE_PROVIDER=mistral\n", "")
             .replace(
@@ -347,7 +347,11 @@ fn the_summary_engine_can_be_left_out() {
                 "",
             ),
     );
-    assert!(from_env(&none, Language::En, Path::new("/h"), |_| None, &none_found).is_err());
+    let plan = from_env(&none, Language::En, Path::new("/h"), |_| None, &none_found).unwrap();
+    assert_eq!(
+        plan.updates,
+        [("LIBERARR_TRANSCRIBE_PROVIDER", "local".to_string())]
+    );
 
     let off = ENV
         .replace(
@@ -396,7 +400,7 @@ fn the_summary_engine_can_be_left_out() {
     // Reconfigure, transcription (mistral, first model), summary (none), content language.
     p.choices.extend([
         Picked::Option(1),
-        Picked::Option(1),
+        Picked::Option(2),
         Picked::Option(0),
         Picked::Option(3),
         Picked::Option(0),
@@ -541,6 +545,59 @@ fn find_program_needs_an_executable_file() {
     );
     std::fs::remove_dir_all(&base).unwrap();
     std::fs::remove_dir_all(&relative).unwrap();
+}
+
+/// Local Whisper is the default transcriber: chosen with one Enter, nothing else asked or
+/// written, and what a non-interactive run does when no transcription variable is given.
+#[test]
+fn local_is_the_default_transcriber() {
+    let without_transcribe = |s: &str| {
+        s.lines()
+            .filter(|l| !l.starts_with("LIBERARR_TRANSCRIBE_"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let env = parse_env(&without_transcribe(ENV));
+    let mut p = Fake::default();
+    p.choices.push_back(Picked::Text(ACCEPT_DEFAULT.into()));
+    let plan = run_setup(
+        &mut p,
+        &env,
+        Language::En,
+        Path::new("/h"),
+        &ok,
+        &no_routes,
+        &none_found,
+    )
+    .unwrap();
+    assert_eq!(
+        plan.updates,
+        [("LIBERARR_TRANSCRIBE_PROVIDER", "local".to_string())]
+    );
+    assert!(
+        p.seen
+            .iter()
+            .any(|s| s.contains(&*t!("init.local_model_note")))
+    );
+    assert!(p.seen.iter().any(|s| s.starts_with("local ")));
+
+    let plan = from_env(&env, Language::En, Path::new("/h"), |_| None, &none_found).unwrap();
+    assert_eq!(
+        plan.updates,
+        [("LIBERARR_TRANSCRIBE_PROVIDER", "local".to_string())]
+    );
+    // Said out loud: the same, with no URL, key or model.
+    let given = |k: &str| (k == "LIBERARR_TRANSCRIBE_PROVIDER").then(|| "local".to_string());
+    let plan = from_env(&env, Language::En, Path::new("/h"), given, &none_found).unwrap();
+    assert_eq!(
+        plan.updates,
+        [("LIBERARR_TRANSCRIBE_PROVIDER", "local".to_string())]
+    );
+    // A gateway URL without a provider is not silently replaced by local.
+    let url = |k: &str| {
+        (k == "LIBERARR_TRANSCRIBE_BASE_URL").then(|| "https://gw.example/v1".to_string())
+    };
+    assert!(from_env(&env, Language::En, Path::new("/h"), url, &none_found).is_err());
 }
 
 /// The .env without any summary setting.
