@@ -13,6 +13,7 @@ pub mod exports;
 pub mod jobs;
 pub mod lang;
 pub mod recordings;
+pub mod search;
 pub mod summaries;
 pub mod transcription;
 
