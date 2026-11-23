@@ -19,6 +19,7 @@ import { CopyButton } from '@/shared/CopyButton'
 import { formatDate, formatTimestamp } from '@/shared/time'
 import { ActionsTable } from '@/features/summaries/ActionsTable'
 import { Mindmap } from '@/features/summaries/Mindmap'
+import { FindReplaceDialog } from '@/features/transcription/FindReplaceDialog'
 import { TranscriptView } from '@/features/transcription/TranscriptView'
 import { downloadText, transcriptCopyText, transcriptFileName, transcriptFileText } from '@/features/transcription/text'
 import { useEditTranscript, useRecording, useRenameSpeaker, useRerun, useSpeakerCount, type Job, type SegmentChange } from '@/features/recordings/api'
@@ -290,6 +291,7 @@ function RecordingContent({ id }: { id: number }) {
                         </>
                       )}
                       <div className="ml-auto flex items-center gap-2">
+                        <FindReplaceDialog transcript={transcript} locked={transcriptLocked} onEdit={onEdit} />
                         <CopyButton text={transcriptCopyText(transcript, speakerName)} label={t('transcription.copy')} />
                         <Button
                           variant="outline"

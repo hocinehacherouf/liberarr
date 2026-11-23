@@ -116,7 +116,16 @@
     "original": "Original : {{text}}",
     "removedSegment": "Segment supprimé",
     "editStale": "La transcription a changé depuis le chargement de la page, ou elle est de nouveau en cours de transcription. Elle a été rechargée : réessayez.",
-    "editError": "Impossible d’enregistrer la correction."
+    "editError": "Impossible d’enregistrer la correction.",
+    "findReplace": "Rechercher et remplacer",
+    "find": "Rechercher",
+    "replaceWith": "Remplacer par",
+    "matchCase": "Respecter la casse",
+    "replace": "Remplacer",
+    "findCount_one": "{{count}} segment sera modifié",
+    "findCount_other": "{{count}} segments seront modifiés",
+    "findNone": "Aucun segment ne correspond",
+    "findTooMany": "Trop de segments à la fois ({{max}} au maximum)."
   },
   "sidebar": {
     "title": "Barre latérale",

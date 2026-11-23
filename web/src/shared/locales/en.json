@@ -116,7 +116,16 @@
     "original": "Original: {{text}}",
     "removedSegment": "Removed segment",
     "editStale": "The transcript changed since this page loaded, or is being transcribed again. It has been reloaded: try again.",
-    "editError": "Unable to save the correction."
+    "editError": "Unable to save the correction.",
+    "findReplace": "Find and replace",
+    "find": "Find",
+    "replaceWith": "Replace with",
+    "matchCase": "Match case",
+    "replace": "Replace",
+    "findCount_one": "{{count}} segment will change",
+    "findCount_other": "{{count}} segments will change",
+    "findNone": "No segment matches",
+    "findTooMany": "Too many segments at once ({{max}} at most)."
   },
   "sidebar": {
     "title": "Sidebar",
