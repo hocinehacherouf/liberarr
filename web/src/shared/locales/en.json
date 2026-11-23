@@ -161,6 +161,10 @@
   },
   "palette": {
     "title": "Command palette",
-    "description": "Search a recording, change the theme or sign out."
+    "description": "Search a recording or what was said, change the theme or sign out.",
+    "transcripts": "In transcripts",
+    "searching": "Searching the transcripts…",
+    "searchError": "The transcript search failed.",
+    "moreHits": "Only the first {{count}} matches are shown: type more to narrow."
   }
 }

@@ -1,7 +1,7 @@
 import { ArrowLeftIcon, CircleCheckIcon, CircleDashedIcon, CircleXIcon, DownloadIcon, LoaderCircleIcon, MicOffIcon, TriangleAlertIcon } from 'lucide-react'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams } from 'react-router'
+import { Link, useLocation, useParams, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -85,6 +85,27 @@ function RecordingContent({ id }: { id: number }) {
   const retryButton = useRef<HTMLButtonElement>(null)
   const audio = useRef<HTMLAudioElement>(null)
   const [tab, setTab] = useState<string | null>(null)
+  const [focus, setFocus] = useState<{ time: number; key: string }>()
+
+  // A search hit links here with ?t=<seconds>: once per navigation (the router's location key), as soon as the
+  // recording, hence the audio element, is there. A jump inside this recording keeps the page, so open editors survive.
+  const location = useLocation()
+  const [params] = useSearchParams()
+  const applied = useRef<string | null>(null)
+  const loaded = rec != null
+  useEffect(() => {
+    if (!loaded || !audio.current || applied.current === location.key) return
+    applied.current = location.key
+    const t = params.get('t')
+    if (t === null) return
+    // oxlint-disable-next-line react/set-state-in-effect -- applies a navigation, once the recording (and its audio element) exists
+    setTab('transcript')
+    const at = Number(t)
+    if (!Number.isFinite(at) || at < 0) return
+    // No play(): before the metadata loads the browser keeps this as the start position.
+    audio.current.currentTime = at
+    setFocus({ time: at, key: location.key })
+  }, [location.key, loaded, params])
 
   const seek = (seconds: number) => {
     if (!audio.current) return
@@ -326,6 +347,7 @@ function RecordingContent({ id }: { id: number }) {
                       locked={transcriptLocked}
                       audio={audio}
                       onSeek={seek}
+                      focus={focus}
                     />
                   </CardContent>
                 </Card>
