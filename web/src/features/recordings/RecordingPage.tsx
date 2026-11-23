@@ -21,7 +21,8 @@ import { ActionsTable } from '@/features/summaries/ActionsTable'
 import { Mindmap } from '@/features/summaries/Mindmap'
 import { TranscriptView } from '@/features/transcription/TranscriptView'
 import { downloadText, transcriptCopyText, transcriptFileName, transcriptFileText } from '@/features/transcription/text'
-import { useRecording, useRenameSpeaker, useRerun, useSpeakerCount, type Job } from '@/features/recordings/api'
+import { useEditTranscript, useRecording, useRenameSpeaker, useRerun, useSpeakerCount, type Job, type SegmentChange } from '@/features/recordings/api'
+import { exportOnly, stepBusy } from '@/features/recordings/jobs'
 import { AudioBar } from '@/features/recordings/AudioBar'
 import { RecordingMenu } from '@/features/recordings/RecordingMenu'
 import { StatusBadge } from '@/features/recordings/StatusBadge'
@@ -50,6 +51,19 @@ function RecordingContent({ id }: { id: number }) {
   const { mutateAsync: renameSpeaker } = useRenameSpeaker(id)
   // Stable, so the memoised transcript rows do not re-render with the page.
   const onRename = useCallback((speaker: number, name: string) => renameSpeaker({ speaker, name }), [renameSpeaker])
+  const { mutateAsync: editTranscript } = useEditTranscript(id)
+  // Toasts its own errors and rethrows: the editors close only when it resolves and never toast again.
+  const onEdit = useCallback(
+    async (changes: SegmentChange[]) => {
+      try {
+        await editTranscript(changes)
+      } catch (e) {
+        toast.error(t(e instanceof ApiError && e.status === 409 ? 'transcription.editStale' : 'transcription.editError'))
+        throw e
+      }
+    },
+    [editTranscript, t],
+  )
   const audio = useRef<HTMLAudioElement>(null)
   const [tab, setTab] = useState<string | null>(null)
 
@@ -86,7 +100,9 @@ function RecordingContent({ id }: { id: number }) {
       </div>
     )
 
-  const processing = rec.status === 'processing'
+  // The export a save queues makes the recording "processing": it must neither flash the alert nor lock anything.
+  const processing = rec.status === 'processing' && !exportOnly(rec.jobs)
+  const transcriptLocked = stepBusy(rec.jobs, 'transcribe')
   const failedStep = rec.status === 'failed' ? rec.failed_step : null
   const failedJob = failedStep ? rec.jobs.findLast((j) => j.step === failedStep) : undefined
   const requested = rec.speakers.requested
@@ -118,8 +134,11 @@ function RecordingContent({ id }: { id: number }) {
       onError: (e) => toast.error(t(e instanceof ApiError && e.status === 409 ? 'speakers.countRefused' : 'speakers.countError')),
     })
 
-  // An empty transcript (a recording with no speech) gets no tab and no speaker-count control.
-  const transcript = rec.transcript && (rec.transcript.segments.length > 0 || rec.transcript.text.trim() !== '') ? rec.transcript : null
+  // An empty transcript (a recording with no speech) gets no tab and no speaker-count control; an edited one keeps its tab so Revert stays reachable.
+  const transcript =
+    rec.transcript && (rec.transcript.segments.length > 0 || rec.transcript.text.trim() !== '' || rec.transcript.text_original != null)
+      ? rec.transcript
+      : null
   // A tab exists only when its data does; the first one is the default.
   const tabs = [
     rec.summary && 'summary',
@@ -293,6 +312,8 @@ function RecordingContent({ id }: { id: number }) {
                       transcript={transcript}
                       speakerName={speakerName}
                       onRename={onRename}
+                      onEdit={onEdit}
+                      locked={transcriptLocked}
                       audio={audio}
                       onSeek={seek}
                     />

@@ -102,7 +102,21 @@
     "download": "Download the transcript as a text file",
     "downloadShort": "Download",
     "title": "Transcript",
-    "noTimestamps": "This provider does not return timestamps"
+    "noTimestamps": "This provider does not return timestamps",
+    "edit": "Edit this segment",
+    "editWhole": "Edit the transcript",
+    "segmentText": "Text of the segment at {{time}}",
+    "wholeText": "Text of the transcript",
+    "save": "Save",
+    "cancel": "Cancel",
+    "remove": "Remove this segment",
+    "restore": "Restore",
+    "revert": "Revert",
+    "edited": "Edited",
+    "original": "Original: {{text}}",
+    "removedSegment": "Removed segment",
+    "editStale": "The transcript changed since this page loaded, or is being transcribed again. It has been reloaded: try again.",
+    "editError": "Unable to save the correction."
   },
   "sidebar": {
     "title": "Sidebar",

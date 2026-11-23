@@ -20,12 +20,18 @@ export interface Segment {
   text: string
   /** 0-based; null without a diarization or where no speaker covers the segment. */
   speaker: number | null
+  /** The engine's text, when the segment was edited or removed. */
+  original: string | null
+  /** `text` is then `""`. */
+  removed: boolean
 }
 
 export interface Transcript {
   engine: string
   language: string | null
   text: string
+  /** The engine's text, for a transcript without timestamps whose one unit is edited. */
+  text_original: string | null
   has_timestamps: boolean
   segments: Segment[]
 }
@@ -43,6 +49,8 @@ export interface Summary {
   summary_md: string
   mindmap: string
   actions: Action[]
+  /** The engine's title and Markdown, when the owner edited them. */
+  generated: { title: string; summary_md: string } | null
 }
 
 export interface Job {
@@ -88,6 +96,27 @@ export function useRerun(id: number) {
   return useMutation({
     mutationFn: (step: string) => api(`/api/recordings/${id}/rerun`, { method: 'POST', body: JSON.stringify({ step }) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['recordings'] }),
+  })
+}
+
+/** `current` is the text the page displays for that unit (`""` for a removed segment). */
+export interface SegmentChange {
+  index: number
+  current: string
+  text: string
+}
+
+/** Saves corrections in one batch (204). The API refuses it (409) when `current` is out of date or a transcription runs. */
+export function useEditTranscript(id: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (edits: SegmentChange[]) =>
+      api(`/api/recordings/${id}/transcript`, { method: 'PATCH', body: JSON.stringify({ edits }) }),
+    // Returned, so the promise settles once the page shows the saved text.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['recordings'] }),
+    onError: (e) => {
+      if (e instanceof ApiError && (e.status === 409 || e.status === 404)) void qc.invalidateQueries({ queryKey: ['recordings', id] })
+    },
   })
 }
 

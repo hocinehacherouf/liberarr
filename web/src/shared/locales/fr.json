@@ -102,7 +102,21 @@
     "download": "Télécharger la transcription en fichier texte",
     "downloadShort": "Télécharger",
     "title": "Transcription",
-    "noTimestamps": "Ce fournisseur ne renvoie pas d'horodatage"
+    "noTimestamps": "Ce fournisseur ne renvoie pas d'horodatage",
+    "edit": "Modifier ce segment",
+    "editWhole": "Modifier la transcription",
+    "segmentText": "Texte du segment à {{time}}",
+    "wholeText": "Texte de la transcription",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "remove": "Supprimer ce segment",
+    "restore": "Restaurer",
+    "revert": "Rétablir",
+    "edited": "Modifié",
+    "original": "Original : {{text}}",
+    "removedSegment": "Segment supprimé",
+    "editStale": "La transcription a changé depuis le chargement de la page, ou elle est de nouveau en cours de transcription. Elle a été rechargée : réessayez.",
+    "editError": "Impossible d’enregistrer la correction."
   },
   "sidebar": {
     "title": "Barre latérale",
