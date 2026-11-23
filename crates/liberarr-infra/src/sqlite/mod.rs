@@ -822,9 +822,14 @@ mod tests {
             .await
             .unwrap();
 
-        db.set_edit(id, &text("Point", "gen"), &text("Point hebdo", "mine"))
-            .await
-            .unwrap();
+        db.set_edit(
+            id,
+            &text("Point", "gen"),
+            &text("Point", "gen"),
+            &text("Point hebdo", "mine"),
+        )
+        .await
+        .unwrap();
         let s = SummaryRepo::get(&db, id).await.unwrap().unwrap();
         assert_eq!(
             (s.title.as_str(), s.summary_md.as_str()),
@@ -840,10 +845,30 @@ mod tests {
             ("Point", Some(text("Point hebdo", "mine")))
         );
         let err = db
-            .set_edit(id, &text("Other", "gen"), &text("x", "y"))
+            .set_edit(
+                id,
+                &text("Other", "gen"),
+                &text("Point hebdo", "mine"),
+                &text("x", "y"),
+            )
             .await
             .unwrap_err();
         assert!(matches!(err, Error::Conflict(_)), "{err:?}");
+        // A page that still shows an older version (here the generated pair) is refused and changes nothing.
+        let err = db
+            .set_edit(
+                id,
+                &text("Point", "gen"),
+                &text("Point", "gen"),
+                &text("x", "y"),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::Conflict(_)), "{err:?}");
+        assert_eq!(
+            db.get_with_edit(id).await.unwrap().unwrap().1,
+            Some(text("Point hebdo", "mine"))
+        );
 
         // Ticking an action, or a new summary with the same text, keeps the edit.
         assert!(db.set_action_done(id, 0, "call Bob", true).await.unwrap());
@@ -861,16 +886,27 @@ mod tests {
             "new"
         );
         // Restoring the generated version deletes the overlay.
-        db.set_edit(id, &text("Point", "new"), &text("Point 2", "new"))
-            .await
-            .unwrap();
-        db.set_edit(id, &text("Point", "new"), &text("Point", "new"))
-            .await
-            .unwrap();
+        db.set_edit(
+            id,
+            &text("Point", "new"),
+            &text("Point", "new"),
+            &text("Point 2", "new"),
+        )
+        .await
+        .unwrap();
+        db.set_edit(
+            id,
+            &text("Point", "new"),
+            &text("Point 2", "new"),
+            &text("Point", "new"),
+        )
+        .await
+        .unwrap();
         assert!(db.get_with_edit(id).await.unwrap().unwrap().1.is_none());
         let other = db.add(new_rec("h2")).await.unwrap();
         assert!(matches!(
-            db.set_edit(other, &text("a", "b"), &text("c", "d")).await,
+            db.set_edit(other, &text("a", "b"), &text("a", "b"), &text("c", "d"))
+                .await,
             Err(Error::NotFound(_))
         ));
     }
@@ -914,7 +950,9 @@ mod tests {
             title: "Point".into(),
             summary_md: "my summary".into(),
         };
-        db.set_edit(id, &generated, &mine).await.unwrap();
+        db.set_edit(id, &generated, &generated, &mine)
+            .await
+            .unwrap();
 
         let path = ExportToObsidian {
             recordings: &db,

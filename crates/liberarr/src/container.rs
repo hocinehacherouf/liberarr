@@ -304,9 +304,10 @@ impl Backend for App {
         &self,
         id: i64,
         generated: &SummaryText,
+        current: &SummaryText,
         edit: &SummaryText,
     ) -> Result<()> {
-        self.db.set_edit(id, generated, edit).await
+        self.db.set_edit(id, generated, current, edit).await
     }
     async fn jobs(&self, id: i64) -> Result<Vec<JobInfo>> {
         self.db.list_for(id).await

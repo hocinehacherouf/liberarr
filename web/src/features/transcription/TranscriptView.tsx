@@ -108,9 +108,15 @@ const Row = memo(function Row({
     if (saved) refocus.current = text.trim() === '' ? 'restore' : 'edit'
     return saved
   }
+  // Blank is not a save: Remove is the explicit action, as in the whole-text editor.
+  const blank = draft.trim() === ''
   const save = async (text: string) => {
-    // Nothing to save: just close.
-    if (text === s.text || (await change(text))) onStopEdit()
+    if (blank) return
+    if (text === s.text) {
+      // Nothing to save: just close, and hand the focus back like any other close.
+      refocus.current = 'edit'
+      onStopEdit()
+    } else if (await change(text)) onStopEdit()
   }
   const cancel = () => {
     refocus.current = 'edit'
@@ -171,7 +177,7 @@ const Row = memo(function Row({
             aria-label={t('transcription.segmentText', { time })}
           />
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" disabled={locked || pending} onClick={() => void save(draft)} className="max-md:h-11">
+            <Button type="button" size="sm" disabled={blank || locked || pending} onClick={() => void save(draft)} className="max-md:h-11">
               {t('transcription.save')}
             </Button>
             <Button type="button" variant="outline" size="sm" disabled={pending} onClick={cancel} className="max-md:h-11">

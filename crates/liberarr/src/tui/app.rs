@@ -578,7 +578,8 @@ impl Ui {
         if self.rt.block_on(rerun(&self.app.db, id, Some(step)))? == Rerun::Busy {
             self.toast(t!("tui.rerun_busy").into_owned(), theme::warn());
         } else if !warnings.is_empty() {
-            self.toast(warnings.join(" "), theme::warn());
+            let queued = t!("tui.rerun_queued", step = step);
+            self.toast(format!("{queued} {}", warnings.join(" ")), theme::warn());
         } else {
             self.toast(
                 t!("tui.rerun_queued", step = step).into_owned(),

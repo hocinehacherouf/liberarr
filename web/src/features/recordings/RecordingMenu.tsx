@@ -1,4 +1,5 @@
 import { DownloadIcon, EllipsisIcon } from 'lucide-react'
+import type { Ref } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import {
@@ -13,14 +14,26 @@ import {
 
 const RERUN_STEPS = ['transcribe', 'summarize', 'diarize', 'export'] as const
 
-/** The "more" menu of a recording: download the audio, run a step again (`disabled` locks the reruns only). */
-export function RecordingMenu({ id, disabled, onRerun }: { id: number; disabled: boolean; onRerun: (step: string) => void }) {
+/** The "more" menu of a recording: download the audio, run a step again (`disabled` locks the reruns only).
+ *  `triggerRef` is the menu button, where the focus returns when a rerun's confirmation closes. */
+export function RecordingMenu({
+  id,
+  disabled,
+  onRerun,
+  triggerRef,
+}: {
+  id: number
+  disabled: boolean
+  onRerun: (step: string) => void
+  triggerRef: Ref<HTMLButtonElement>
+}) {
   const { t } = useTranslation()
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
           <Button
+            ref={triggerRef}
             variant="ghost"
             size="icon"
             aria-label={t('recordings.moreActions')}

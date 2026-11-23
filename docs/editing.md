@@ -18,7 +18,7 @@ The action texts and the mind map (ticking an action as done works as before), a
 - **Everywhere the text is read:** the web UI, the terminal app, MCP, the summary step on a rerun, and the Obsidian note.
 - **The note updates by itself** after each save, between its `%% liberarr:start %%` markers as usual.
 - **The engine's text is kept.** Your corrections are stored next to it, never over it.
-- **Saving is refused** while the transcription is being redone (a summary edit, while the transcription or the summary is), because the new text would replace what you edit.
+- **Saving is refused** while the transcription is being redone (a summary edit, while the transcription or the summary is), because the new text would replace what you edit. It is also refused when the page shows an older version than the saved one (another tab saved first): reload the page and edit again.
 
 ## Rerunning a step
 

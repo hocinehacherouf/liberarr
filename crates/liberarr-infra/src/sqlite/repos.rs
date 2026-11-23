@@ -219,15 +219,17 @@ impl TranscriptRepo for Db {
         let t = t.clone();
         self.run(move |c| {
             let tx = write_tx(c)?;
-            let old: Option<(String, String)> = tx
+            let old: Option<(String, String, bool)> = tx
                 .query_row(
-                    "SELECT text, segments FROM transcripts WHERE recording_id = ?1",
+                    "SELECT text, segments, has_timestamps FROM transcripts WHERE recording_id = ?1",
                     [recording_id],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
                 )
                 .optional()?;
-            // The owner's edits describe the old engine text: a rerun that changes it makes them wrong.
-            if old.is_some_and(|(text, segs)| text != t.text || segs != segments) {
+            // The owner's edits describe the old engine text (and what unit 0 means): a rerun that changes it makes them wrong.
+            if old.is_some_and(|(text, segs, timed)| {
+                text != t.text || segs != segments || timed != t.has_timestamps
+            }) {
                 tx.execute(
                     "DELETE FROM transcript_edits WHERE recording_id = ?1",
                     [recording_id],
@@ -479,15 +481,32 @@ impl SummaryEditRepo for Db {
         &self,
         recording_id: i64,
         generated: &SummaryText,
+        current: &SummaryText,
         edit: &SummaryText,
     ) -> Result<()> {
-        let (generated, edit) = (generated.clone(), edit.clone());
+        let (generated, current, edit) = (generated.clone(), current.clone(), edit.clone());
         self.run(move |c| {
             let tx = write_tx(c)?;
             let Some(stored) = read_summary(&tx, recording_id)? else {
                 return Ok(Err(Error::NotFound("summary".into())));
             };
             if stored.title != generated.title || stored.summary_md != generated.summary_md {
+                return Ok(Err(Error::Conflict("summary".into())));
+            }
+            let shown = tx
+                .query_row(
+                    "SELECT title, summary_md FROM summary_edits WHERE recording_id = ?1",
+                    [recording_id],
+                    |r| {
+                        Ok(SummaryText {
+                            title: r.get(0)?,
+                            summary_md: r.get(1)?,
+                        })
+                    },
+                )
+                .optional()?
+                .unwrap_or_else(|| generated.clone());
+            if shown != current {
                 return Ok(Err(Error::Conflict("summary".into())));
             }
             if edit == generated {

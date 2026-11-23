@@ -137,7 +137,10 @@ pub fn apply_edits(mut t: Transcript, edits: &[SegmentEdit]) -> Transcript {
     }
     if !t.has_timestamps {
         // One unit: the only slot holds an edit.
-        t.text = slots[0].map(|e| e.text.clone()).unwrap_or_default();
+        t.text = slots[0]
+            .filter(|e| !e.removes())
+            .map(|e| e.text.clone())
+            .unwrap_or_default();
         t.segments.clear();
         return t;
     }
@@ -414,8 +417,10 @@ mod tests {
             prepare_edits(&t, &[], &[change]),
             Err(Error::NotFound(_))
         ));
-        let out = apply_edits(t, &[edit(0, "bonjour jon", "bonjour John")]);
+        let out = apply_edits(t.clone(), &[edit(0, "bonjour jon", "bonjour John")]);
         assert_eq!(out.text, "bonjour John");
         assert!(out.segments.is_empty() && !out.has_timestamps);
+        // A removal sent as whitespace reads "" like `unit_texts`, or the page would get 409 on every later save.
+        assert_eq!(apply_edits(t, &[edit(0, "bonjour jon", "  ")]).text, "");
     }
 }

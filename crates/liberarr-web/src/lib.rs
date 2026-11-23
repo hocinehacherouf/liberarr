@@ -49,6 +49,7 @@ pub trait Backend: Send + Sync + 'static {
         &self,
         id: i64,
         generated: &SummaryText,
+        current: &SummaryText,
         edit: &SummaryText,
     ) -> impl Future<Output = Result<()>> + Send;
     fn jobs(&self, id: i64) -> impl Future<Output = Result<Vec<JobInfo>>> + Send;
@@ -253,12 +254,17 @@ mod tests {
             &self,
             id: i64,
             generated: &SummaryText,
+            current: &SummaryText,
             _: &SummaryText,
         ) -> Result<()> {
             if id != 1 {
                 return Err(liberarr_core::Error::NotFound("summary".into()));
             }
-            if generated.title != "t" || generated.summary_md != "s" {
+            if generated.title != "t"
+                || generated.summary_md != "s"
+                || current.title != "t"
+                || current.summary_md != "s"
+            {
                 return Err(liberarr_core::Error::Conflict("summary".into()));
             }
             Ok(())
@@ -923,7 +929,8 @@ mod tests {
         let app = app_with(fake);
         let put = |title: &str, md: &str, generated_title: &str| {
             let body = serde_json::json!({"title": title, "summary_md": md,
-                "generated_title": generated_title, "generated_summary_md": "s"});
+                "generated_title": generated_title, "generated_summary_md": "s",
+                "current_title": "t", "current_summary_md": "s"});
             req(
                 "PUT",
                 "/api/recordings/1/summary",
@@ -953,6 +960,23 @@ mod tests {
             StatusCode::NO_CONTENT
         );
         assert_eq!(jobs.lock().expect("lock")[0].step, "export");
+        // A page that shows another version than the saved one is refused.
+        let stale = serde_json::json!({"title": "New", "summary_md": "s",
+            "generated_title": "t", "generated_summary_md": "s",
+            "current_title": "old", "current_summary_md": "s"});
+        assert_eq!(
+            status(
+                &app,
+                req(
+                    "PUT",
+                    "/api/recordings/1/summary",
+                    Some("key"),
+                    &stale.to_string()
+                )
+            )
+            .await,
+            StatusCode::CONFLICT
+        );
         // A queued summary will replace it: refused.
         jobs.lock().expect("lock")[0].step = "summarize".into();
         assert_eq!(

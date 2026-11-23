@@ -29,6 +29,7 @@ export function FindReplaceDialog({ transcript, locked, onEdit }: Props) {
   const [pending, setPending] = useState(false)
   const edits = useMemo(() => findReplaceEdits(transcript, find, replacement, matchCase), [transcript, find, replacement, matchCase])
   const tooMany = edits.length > MAX_EDITS
+  const canReplace = find !== '' && edits.length > 0 && !tooMany && !pending
 
   const onOpenChange = (next: boolean) => {
     if (pending) return
@@ -41,7 +42,7 @@ export function FindReplaceDialog({ transcript, locked, onEdit }: Props) {
   }
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (find === '' || edits.length === 0 || tooMany || pending) return
+    if (!canReplace) return
     setPending(true)
     try {
       await onEdit(edits)
@@ -95,7 +96,7 @@ export function FindReplaceDialog({ transcript, locked, onEdit }: Props) {
             <Button type="button" variant="outline" disabled={pending} onClick={() => onOpenChange(false)} className="max-md:h-11">
               {t('transcription.cancel')}
             </Button>
-            <Button type="submit" disabled={find === '' || edits.length === 0 || tooMany || pending} className="max-md:h-11">
+            <Button type="submit" disabled={!canReplace} className="max-md:h-11">
               {t('transcription.replace')}
             </Button>
           </div>

@@ -61,7 +61,13 @@ export function SummaryCard({ recordingId, summary, locked }: Props) {
     const from = generated ?? summary
     setPending(true)
     try {
-      await mutateAsync({ ...next, generated_title: from.title, generated_summary_md: from.summary_md })
+      await mutateAsync({
+        ...next,
+        generated_title: from.title,
+        generated_summary_md: from.summary_md,
+        current_title: summary.title,
+        current_summary_md: summary.summary_md,
+      })
     } catch (e) {
       toast.error(t(e instanceof ApiError && e.status === 409 ? 'summaries.editStale' : 'summaries.editError'))
       throw e

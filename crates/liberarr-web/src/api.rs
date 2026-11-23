@@ -445,12 +445,15 @@ pub async fn toggle_action<B: Backend>(
     ))
 }
 
+// axum's default 2 MB body limit bounds the whole payload, whatever these limits add up to.
 const MAX_EDITS: usize = 5000;
 const MAX_EDIT_CHARS: usize = 500_000;
 const MAX_TITLE: usize = 200;
 const MAX_SUMMARY_CHARS: usize = 100_000;
 
 /// A transcription (or summary) queued or running will replace what is being edited.
+// shortcut: the check and the write are not atomic; a transcription that starts in between makes the edit stale, and a
+// stale edit is ignored on read. Fine for a single owner.
 fn replacing(jobs: &[JobInfo], steps: &[&str]) -> bool {
     jobs.iter().any(|j| {
         matches!(j.status, JobStatus::Queued | JobStatus::Running)
@@ -523,6 +526,9 @@ pub struct SummaryEdit {
     summary_md: String,
     generated_title: String,
     generated_summary_md: String,
+    /// What the page displayed (the owner's version, else the generated one): 409 when it has changed since.
+    current_title: String,
+    current_summary_md: String,
 }
 
 pub async fn edit_summary<B: Backend>(
@@ -535,10 +541,19 @@ pub async fn edit_summary<B: Backend>(
         summary_md,
         generated_title,
         generated_summary_md,
+        current_title,
+        current_summary_md,
     } = body;
-    let too_long = [&title, &summary_md, &generated_title, &generated_summary_md]
-        .iter()
-        .any(|f| f.chars().count() > MAX_EDIT_CHARS);
+    let too_long = [
+        &title,
+        &summary_md,
+        &generated_title,
+        &generated_summary_md,
+        &current_title,
+        &current_summary_md,
+    ]
+    .iter()
+    .any(|f| f.chars().count() > MAX_EDIT_CHARS);
     // A field equal to its generated text passes as sent, so a restore compares equal and drops the overlay.
     let title_ok = title == generated_title || {
         let t = title.trim();
@@ -567,6 +582,10 @@ pub async fn edit_summary<B: Backend>(
             &SummaryText {
                 title: generated_title,
                 summary_md: generated_summary_md,
+            },
+            &SummaryText {
+                title: current_title,
+                summary_md: current_summary_md,
             },
             &SummaryText { title, summary_md },
         )

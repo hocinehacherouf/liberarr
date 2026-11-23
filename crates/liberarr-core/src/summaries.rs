@@ -126,11 +126,13 @@ pub trait SummaryEditRepo {
         recording_id: i64,
     ) -> Result<Option<(MeetingSummary, Option<SummaryText>)>>;
     /// One transaction: `NotFound("summary")` without a summary; `Conflict("summary")` when the stored generated title or
-    /// summary_md differ from `generated`; `edit == generated` deletes the overlay, else it is upserted.
+    /// summary_md differ from `generated`, or the effective pair (the stored edit, else the generated one) differs
+    /// from `current`, what the page displayed; `edit == generated` deletes the overlay, else it is upserted.
     async fn set_edit(
         &self,
         recording_id: i64,
         generated: &SummaryText,
+        current: &SummaryText,
         edit: &SummaryText,
     ) -> Result<()>;
 }

@@ -80,6 +80,9 @@ function RecordingContent({ id }: { id: number }) {
       },
     })
   const confirmRerun = useRerunConfirm(rec, rerunStep)
+  // Where the focus returns when the rerun confirmation closes.
+  const menuButton = useRef<HTMLButtonElement>(null)
+  const retryButton = useRef<HTMLButtonElement>(null)
   const audio = useRef<HTMLAudioElement>(null)
   const [tab, setTab] = useState<string | null>(null)
 
@@ -117,7 +120,8 @@ function RecordingContent({ id }: { id: number }) {
     )
 
   // The export a save queues makes the recording "processing": it must neither flash the alert nor lock anything.
-  const processing = rec.status === 'processing' && !exportOnly(rec.jobs)
+  const settled = exportOnly(rec.jobs)
+  const processing = rec.status === 'processing' && !settled
   const transcriptLocked = stepBusy(rec.jobs, 'transcribe')
   const summaryLocked = transcriptLocked || stepBusy(rec.jobs, 'summarize')
   const failedStep = rec.status === 'failed' ? rec.failed_step : null
@@ -159,10 +163,17 @@ function RecordingContent({ id }: { id: number }) {
           {back}
           <div className="flex items-start justify-between gap-2">
             <h1 className="min-w-0 text-2xl font-semibold tracking-tight text-balance wrap-break-word">{title}</h1>
-            <RecordingMenu id={id} disabled={processing || rerun.isPending} onRerun={confirmRerun.request} />
+            {/* The server status, not `processing`: it skips a rerun while an export runs, and still answers 202. */}
+            <RecordingMenu
+              id={id}
+              disabled={rec.status === 'processing' || rerun.isPending}
+              onRerun={(step) => confirmRerun.request(step, menuButton)}
+              triggerRef={menuButton}
+            />
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted-foreground">
-            <StatusBadge recording={rec} />
+            {/* The export a save queues is not "in progress": show the settled state meanwhile. */}
+            <StatusBadge recording={settled ? { no_speech: rec.no_speech, status: steps.some((j) => j.status === 'failed') ? 'failed' : 'done' } : rec} />
             <time dateTime={rec.created_at}>{formatDate(rec.created_at)}</time>
             {rec.duration_s != null && <span className="tabular-nums">{formatTimestamp(rec.duration_s)}</span>}
             {steps.length > 0 && (
@@ -194,7 +205,14 @@ function RecordingContent({ id }: { id: number }) {
               })}
             </AlertTitle>
             <div className="col-start-2 mt-2">
-              <Button variant="outline" size="sm" disabled={rerun.isPending} onClick={() => confirmRerun.request(failedStep)} className="max-md:h-11">
+              <Button
+                ref={retryButton}
+                variant="outline"
+                size="sm"
+                disabled={rerun.isPending}
+                onClick={() => confirmRerun.request(failedStep, retryButton)}
+                className="max-md:h-11"
+              >
                 {t('recordings.retry')}
               </Button>
             </div>
