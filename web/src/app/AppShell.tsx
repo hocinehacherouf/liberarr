@@ -1,5 +1,6 @@
 import { SearchIcon } from 'lucide-react'
-import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Outlet } from 'react-router'
 import { Button } from '@/components/ui/button'
@@ -8,6 +9,7 @@ import { Separator } from '@/components/ui/separator'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/app/AppSidebar'
 import { CommandPalette } from '@/app/CommandPalette'
+import { useProcessing } from '@/features/recordings/api'
 
 const SHORTCUT = /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘K' : 'Ctrl K'
 
@@ -15,6 +17,16 @@ const SHORTCUT = /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘K' : 'Ctrl K'
 export function AppShell() {
   const { t } = useTranslation()
   const [paletteOpen, setPaletteOpen] = useState(false)
+
+  // The one place that refetches the actions when processing ends (a summary may have landed after the last poll):
+  // the shell is mounted on every route, phone or desktop; the sidebar sheet and the page are not.
+  const qc = useQueryClient()
+  const processing = useProcessing()
+  const wasProcessing = useRef(false)
+  useEffect(() => {
+    if (wasProcessing.current && !processing) void qc.invalidateQueries({ queryKey: ['recordings', 'actions'] })
+    wasProcessing.current = processing
+  }, [processing, qc])
 
   return (
     <SidebarProvider>

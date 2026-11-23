@@ -1,5 +1,6 @@
 //! Summaries context: LLM output validation, the summarize use case and action toggling.
 use crate::lang::Language;
+use crate::recordings::{RecordingItem, RecordingRepo};
 use crate::transcription::{Transcript, TranscriptRepo, timestamp};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -230,11 +231,62 @@ impl<S: SummaryRepo> ToggleAction<'_, S> {
     }
 }
 
+/// One recording and its summary's actions as stored: an action's position is the index `ToggleAction` takes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordingActions {
+    pub item: RecordingItem,
+    pub actions: Vec<Action>,
+}
+
+/// Every recording whose summary has at least one action, in `list_items` order (newest first).
+/// `item.title` is the title the recordings list shows (the owner's when edited).
+pub async fn actions_by_recording(
+    recordings: &impl RecordingRepo,
+    summaries: &impl SummaryRepo,
+) -> Result<Vec<RecordingActions>> {
+    let mut found = Vec::new();
+    // shortcut: one summary query per recording, all read before any date filter of a caller;
+    // fine for one person's recordings, add a dedicated query if a home ever holds thousands.
+    for item in recordings.list_items().await? {
+        let Some(s) = summaries.get(item.id).await? else {
+            continue;
+        };
+        if !s.actions.is_empty() {
+            found.push(RecordingActions {
+                item,
+                actions: s.actions,
+            });
+        }
+    }
+    Ok(found)
+}
+
+/// The actions not ticked yet, each with its position in the whole list (the toggle's index).
+pub fn open_with_index(actions: &[Action]) -> impl Iterator<Item = (usize, &Action)> {
+    actions.iter().enumerate().filter(|(_, a)| !a.done)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::Error;
     use crate::fakes::{FakeLlm, MemSummaries, MemTranscripts, block_on};
+
+    #[test]
+    fn open_with_index_keeps_the_toggle_index() {
+        let a = |text: &str, done| Action {
+            action: text.into(),
+            owner: None,
+            due: None,
+            start: None,
+            done,
+        };
+        let actions = [a("x", true), a("y", false), a("z", true), a("w", false)];
+        let open: Vec<_> = open_with_index(&actions)
+            .map(|(i, a)| (i, a.action.as_str()))
+            .collect();
+        assert_eq!(open, [(1, "y"), (3, "w")]);
+    }
 
     #[test]
     fn parse_summary_rejects_non_mindmap() {

@@ -7,8 +7,8 @@ use liberarr_core::jobs::{Job, JobInfo, JobQueue, StepHandler, run_job_once};
 use liberarr_core::recordings::{Ingest, Recording, RecordingItem, RecordingRepo};
 use liberarr_core::search::{TranscriptHit, search_transcripts};
 use liberarr_core::summaries::{
-    ChatMessage, Llm, MeetingSummary, Summarize, SummaryEditRepo, SummaryRepo, SummaryText,
-    ToggleAction,
+    ChatMessage, Llm, MeetingSummary, RecordingActions, Summarize, SummaryEditRepo, SummaryRepo,
+    SummaryText, ToggleAction, actions_by_recording,
 };
 use liberarr_core::transcription::{
     ChunkResult, SegmentChange, SegmentEdit, Transcribe, Transcriber, Transcript,
@@ -276,6 +276,9 @@ impl StepHandler for App {
 impl Backend for App {
     async fn list(&self) -> Result<Vec<RecordingItem>> {
         self.db.list_items().await
+    }
+    async fn actions(&self) -> Result<Vec<RecordingActions>> {
+        actions_by_recording(&self.db, &self.db).await
     }
     async fn search(&self, query: &str, max: usize) -> Result<Vec<TranscriptHit>> {
         search_transcripts(&self.db, &self.db.list_items().await?, query, max).await

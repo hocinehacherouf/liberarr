@@ -61,7 +61,7 @@ Wake the device and close the Plaud app on your phone first: the device talks to
 
 `r` runs a step again, `s` opens the settings, `?` lists every key, `q` quits. Below 100 columns the list and the preview are shown one at a time (`Enter` opens a recording, `Esc` goes back); the smallest window is 60×16. It follows `NO_COLOR` (no colors, no animation) and `LIBERARR_REDUCED_MOTION=1` (no animation).
 
-**Web UI** (`liberarr serve`): open <http://127.0.0.1:8484> and log in as `admin` with the password from `init`. Ctrl/⌘+K jumps to a recording by its title, or, from two characters, to where something was said in a transcript (case and accents ignored, your corrections included). `--host` and `--port` change the address; see [Privacy](privacy.md#web-ui-on-the-network) before using `--host 0.0.0.0`. `serve` never talks to the device: run `pull` separately.
+**Web UI** (`liberarr serve`): open <http://127.0.0.1:8484> and log in as `admin` with the password from `init`. The **Actions** page (in the sidebar, with the number of open actions) lists the action items of every recording, newest first: tick them there, or open the recording at the moment each one was said. Ctrl/⌘+K jumps to a recording by its title, or, from two characters, to where something was said in a transcript (case and accents ignored, your corrections included). `--host` and `--port` change the address; see [Privacy](privacy.md#web-ui-on-the-network) before using `--host 0.0.0.0`. `serve` never talks to the device: run `pull` separately.
 
 Both run the job worker, and both can run at the same time.
 

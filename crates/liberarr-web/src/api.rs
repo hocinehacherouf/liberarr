@@ -294,6 +294,27 @@ pub async fn list<B: Backend>(
     Ok(Json(items.into_iter().map(Into::into).collect()))
 }
 
+#[derive(Serialize)]
+pub struct ActionsView {
+    recording: ItemView,
+    actions: Vec<Action>,
+}
+
+pub async fn list_actions<B: Backend>(
+    State(s): State<AppState<B>>,
+) -> Result<Json<Vec<ActionsView>>, ApiError> {
+    let groups = s.backend.actions().await?;
+    Ok(Json(
+        groups
+            .into_iter()
+            .map(|g| ActionsView {
+                recording: g.item.into(),
+                actions: g.actions,
+            })
+            .collect(),
+    ))
+}
+
 const SEARCH_HITS: usize = 20;
 
 #[derive(Deserialize)]

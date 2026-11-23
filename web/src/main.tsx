@@ -11,6 +11,7 @@ import { LoginPage } from '@/features/auth/LoginPage'
 import { RequireAuth } from '@/features/auth/RequireAuth'
 import { RecordingPage } from '@/features/recordings/RecordingPage'
 import { RecordingsPage } from '@/features/recordings/RecordingsPage'
+import { ActionsPage } from '@/features/summaries/ActionsPage'
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } })
 
@@ -24,6 +25,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="/login" element={<LoginPage />} />
               <Route element={<RequireAuth />}>
                 <Route path="/" element={<RecordingsPage />} />
+                <Route path="/actions" element={<ActionsPage />} />
                 <Route path="/recordings/:id" element={<RecordingPage />} />
               </Route>
             </Routes>

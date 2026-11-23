@@ -1,4 +1,4 @@
-import { LogOutIcon, TextSearchIcon } from 'lucide-react'
+import { ListChecksIcon, LogOutIcon, TextSearchIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
@@ -28,7 +28,7 @@ const DEBOUNCE_MS = 250
 const filter = (value: string, search: string) =>
   value.startsWith('hit:') ? 1 : fold(value.replace(/^\d+ /, '')).includes(fold(search.trim())) ? 1 : 0
 
-/** Cmd/Ctrl+K: jump to a recording, switch the theme, sign out. */
+/** Cmd/Ctrl+K: go to the actions or a recording, switch the theme, sign out. */
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -148,6 +148,12 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               {t('palette.searchError')}
             </p>
           )}
+          <CommandGroup>
+            <CommandItem value={t('palette.goToActions')} onSelect={run(() => void navigate('/actions'))}>
+              <ListChecksIcon aria-hidden="true" />
+              {t('palette.goToActions')}
+            </CommandItem>
+          </CommandGroup>
           <CommandGroup heading={t('theme.title')}>
             {THEMES.map(([name, Icon]) => (
               <CommandItem key={name} value={t(`theme.${name}`)} onSelect={run(() => setTheme(name))}>

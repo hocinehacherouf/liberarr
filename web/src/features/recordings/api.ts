@@ -77,12 +77,32 @@ export interface RecordingDetail extends RecordingItem {
 
 const POLL_MS = 5000
 
+const isProcessing = (list?: RecordingItem[]) => list?.some((r) => r.status === 'processing') ?? false
+
 export const useRecordings = () =>
   useQuery({
     queryKey: ['recordings'],
     queryFn: () => api<RecordingItem[]>('/api/recordings'),
-    refetchInterval: (q) => (q.state.data?.some((r) => r.status === 'processing') ? POLL_MS : false),
+    refetchInterval: (q) => (isProcessing(q.state.data) ? POLL_MS : false),
   })
+
+/** Whether any recording is in progress (what the list and the actions poll on). */
+export const useProcessing = () => isProcessing(useRecordings().data)
+
+export interface RecordingActions {
+  recording: RecordingItem
+  actions: Action[]
+}
+
+/** Every recording's actions, newest first (an action's position is its index in `actions`). Key ['recordings', 'actions'], so every invalidation of ['recordings'] refreshes it. */
+export const useActions = () => {
+  const processing = useProcessing()
+  return useQuery({
+    queryKey: ['recordings', 'actions'],
+    queryFn: () => api<RecordingActions[]>('/api/actions'),
+    refetchInterval: processing ? POLL_MS : false,
+  })
+}
 
 export const useRecording = (id: number) =>
   useQuery({
@@ -205,13 +225,27 @@ export function useToggleAction(id: number) {
         method: 'PATCH',
         body: JSON.stringify({ action, done }),
       }),
-    // The PATCH returns the whole updated array: put it straight into the cached detail.
-    onSuccess: (actions) =>
+    // A poll sent before the PATCH and answered after it would write the old state back: stop them first.
+    onMutate: async () => {
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ['recordings', id] }),
+        qc.cancelQueries({ queryKey: ['recordings', 'actions'] }),
+      ])
+    },
+    // The PATCH returns the whole updated array: put it straight into the cached detail and the actions list.
+    onSuccess: (actions) => {
       qc.setQueryData<RecordingDetail>(['recordings', id], (d) =>
         d?.summary ? { ...d, summary: { ...d.summary, actions } } : d,
-      ),
+      )
+      qc.setQueryData<RecordingActions[]>(['recordings', 'actions'], (list) =>
+        list?.map((g) => (g.recording.id === id ? { ...g, actions } : g)),
+      )
+    },
     onError: (e) => {
-      if (e instanceof ApiError && e.status === 409) void qc.invalidateQueries({ queryKey: ['recordings', id] })
+      if (e instanceof ApiError && e.status === 409) {
+        void qc.invalidateQueries({ queryKey: ['recordings', id] })
+        void qc.invalidateQueries({ queryKey: ['recordings', 'actions'] })
+      }
     },
   })
 }

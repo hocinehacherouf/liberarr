@@ -88,6 +88,17 @@
     "countRefused": "Modification impossible : une étape est en cours ou la détection des locuteurs est désactivée.",
     "countError": "Impossible de modifier le nombre de locuteurs."
   },
+  "actions": {
+    "title": "Actions",
+    "filter": "Afficher",
+    "open": "À faire",
+    "all": "Toutes",
+    "openCount_one": "{{count}} action à faire",
+    "openCount_other": "{{count}} actions à faire",
+    "noneOpen": "Aucune action à faire.",
+    "none": "Aucune action pour l'instant : elles apparaissent avec le résumé d'un enregistrement.",
+    "loadError": "Impossible de charger les actions."
+  },
   "summaries": {
     "copy": "Copier le résumé",
     "summary": "Résumé",
@@ -99,6 +110,7 @@
       "updateError": "Impossible de mettre à jour l'action.",
       "stale": "Les actions ont changé depuis le chargement de la page. Elles ont été rechargées : réessayez.",
       "markDone": "Marquer « {{action}} » comme faite",
+      "openAt": "« {{action}} » à {{time}}",
       "done": "Fait",
       "action": "Action",
       "owner": "Responsable",
@@ -150,7 +162,7 @@
   },
   "sidebar": {
     "title": "Barre latérale",
-    "description": "Navigation entre les enregistrements.",
+    "description": "Navigation entre les actions et les enregistrements.",
     "toggle": "Afficher ou masquer la barre latérale"
   },
   "theme": {
@@ -161,7 +173,8 @@
   },
   "palette": {
     "title": "Palette de commandes",
-    "description": "Rechercher un enregistrement ou ce qui a été dit, changer de thème ou se déconnecter.",
+    "description": "Rechercher un enregistrement ou ce qui a été dit, ouvrir les actions, changer de thème ou se déconnecter.",
+    "goToActions": "Aller aux actions",
     "transcripts": "Dans les transcriptions",
     "searching": "Recherche dans les transcriptions…",
     "searchError": "La recherche dans les transcriptions a échoué.",

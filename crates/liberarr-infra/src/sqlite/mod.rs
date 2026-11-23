@@ -629,6 +629,76 @@ mod tests {
         assert_eq!(db.open_actions().await.unwrap(), 2);
     }
 
+    #[tokio::test]
+    async fn actions_by_recording_newest_first_with_the_owners_title() {
+        use liberarr_core::summaries::{
+            Action, MeetingSummary, SummaryEditRepo, SummaryRepo, SummaryText, actions_by_recording,
+        };
+        let t = TempDb::new("actions-by-recording");
+        let db = Db::open(&t.path()).unwrap();
+        let on = |day: &str| NewRecording {
+            created_at: format!("2026-03-{day}T10:00:00Z").parse().unwrap(),
+            ..new_rec(day)
+        };
+        let action = |text: &str, done| Action {
+            action: text.into(),
+            owner: None,
+            due: None,
+            start: None,
+            done,
+        };
+        let summary = |title: &str, actions| MeetingSummary {
+            title: title.into(),
+            summary_md: "s".into(),
+            mindmap: "mindmap\n  root".into(),
+            actions,
+        };
+        let text = |title: &str| SummaryText {
+            title: title.into(),
+            summary_md: "s".into(),
+        };
+        let old = db.add(on("01")).await.unwrap();
+        let new = db.add(on("02")).await.unwrap();
+        db.add(on("03")).await.unwrap(); // no summary
+        let empty = db.add(on("04")).await.unwrap();
+        SummaryRepo::save(
+            &db,
+            old,
+            &summary("Old", vec![action("x", true), action("y", false)]),
+        )
+        .await
+        .unwrap();
+        SummaryRepo::save(&db, new, &summary("Point", vec![action("z", false)]))
+            .await
+            .unwrap();
+        SummaryRepo::save(&db, empty, &summary("Empty", vec![]))
+            .await
+            .unwrap();
+        db.set_edit(new, &text("Point"), &text("Point"), &text("Point hebdo"))
+            .await
+            .unwrap();
+
+        let groups = actions_by_recording(&db, &db).await.unwrap();
+        let shown: Vec<_> = groups
+            .iter()
+            .map(|g| {
+                let actions: Vec<_> = g
+                    .actions
+                    .iter()
+                    .map(|a| (a.action.as_str(), a.done))
+                    .collect();
+                (g.item.id, g.item.title.as_deref(), actions)
+            })
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (new, Some("Point hebdo"), vec![("z", false)]),
+                (old, Some("Old"), vec![("x", true), ("y", false)])
+            ]
+        );
+    }
+
     /// Issue #88: transcripts must not be readable by other local users.
     #[tokio::test]
     async fn db_files_are_owner_only() {
