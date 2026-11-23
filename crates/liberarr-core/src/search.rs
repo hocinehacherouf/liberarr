@@ -60,6 +60,9 @@ pub struct Excerpt {
 
 /// The first match of the already folded, non-empty query in `text`, in the original spelling.
 pub fn excerpt(text: &str, folded_query: &str) -> Option<Excerpt> {
+    if folded_query.is_empty() {
+        return None;
+    }
     let text = text.trim();
     // origin[i] = byte offset in `text` of the character that produced byte i of `folded`.
     let mut folded = String::with_capacity(text.len());
@@ -212,6 +215,7 @@ mod tests {
             "% (\""
         );
         assert!(excerpt("Bonjour", &fold("réunion")).is_none());
+        assert!(excerpt("Bonjour", "").is_none());
     }
 
     #[test]

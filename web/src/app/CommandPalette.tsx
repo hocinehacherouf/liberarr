@@ -84,7 +84,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
       <Command filter={filter}>
         <CommandInput placeholder={t('common.search')} value={input} onValueChange={setInput} />
         <CommandList>
-          {(q === null || (fresh && !search.isFetching)) && <CommandEmpty>{t('recordings.noMatches')}</CommandEmpty>}
+          {(q === null || (fresh && !search.isFetching && !search.isError)) && <CommandEmpty>{t('recordings.noMatches')}</CommandEmpty>}
           {data && data.length > 0 && (
             <CommandGroup heading={t('recordings.title')}>
               {data.map((r) => {
@@ -113,7 +113,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   <CommandItem
                     key={`${h.recording_id}:${i}`}
                     value={`hit:${h.recording_id}:${i}`}
-                    onSelect={run(() => void navigate(`/recordings/${h.recording_id}?t=${h.start ?? 0}`))}
+                    onSelect={run(() => void navigate(`/recordings/${h.recording_id}?t=${h.start === null ? 0 : Math.ceil(h.start * 100) / 100}`))}
                     className="items-start"
                   >
                     <TextSearchIcon aria-hidden="true" className="mt-0.5" />
@@ -143,7 +143,11 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               {t('palette.searching')}
             </p>
           )}
-          {fresh && search.isError && <p className="px-3 py-2 text-sm text-muted-foreground">{t('palette.searchError')}</p>}
+          {fresh && search.isError && (
+            <p role="status" className="px-3 py-2 text-sm text-muted-foreground">
+              {t('palette.searchError')}
+            </p>
+          )}
           <CommandGroup heading={t('theme.title')}>
             {THEMES.map(([name, Icon]) => (
               <CommandItem key={name} value={t(`theme.${name}`)} onSelect={run(() => setTheme(name))}>

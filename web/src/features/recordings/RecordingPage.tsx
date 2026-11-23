@@ -254,7 +254,14 @@ function RecordingContent({ id }: { id: number }) {
         )}
 
         {active && (
-          <Tabs value={active} onValueChange={setTab}>
+          <Tabs
+            value={active}
+            onValueChange={(next) => {
+              // The panels unmount when left: a stale focus would scroll to the old hit on the way back.
+              setTab(next)
+              setFocus(undefined)
+            }}
+          >
             <TabsList className="max-w-full justify-start overflow-x-auto group-data-horizontal/tabs:max-md:h-11!">
               {tabs.map((value) => (
                 <TabsTrigger key={value} value={value}>

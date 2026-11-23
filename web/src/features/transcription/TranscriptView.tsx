@@ -313,8 +313,13 @@ export function TranscriptView({ transcript, speakerName, onRename, onEdit, lock
     const el = audio.current
     if (!el) return
     const update = () => setTime(el.currentTime)
-    el.addEventListener('timeupdate', update)
-    return () => el.removeEventListener('timeupdate', update)
+    // A deep link seeks before this listener or the metadata exists: read the time once, and follow the seek and the metadata.
+    update()
+    const events = ['timeupdate', 'seeked', 'loadedmetadata']
+    for (const e of events) el.addEventListener(e, update)
+    return () => {
+      for (const e of events) el.removeEventListener(e, update)
+    }
   }, [audio])
   const onChange = useCallback((index: number, text: string) => onEdit([unitChange(transcript, index, text)]), [onEdit, transcript])
   const stopEdit = useCallback(() => setEditing(null), [])
