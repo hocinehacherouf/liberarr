@@ -49,6 +49,8 @@ export function SummaryCard({ recordingId, summary, locked }: Props) {
   const [restoreOpen, setRestoreOpen] = useState(false)
   const opener = useRef<HTMLButtonElement>(null)
   const wasEditing = useRef(false)
+  // What the card showed when the editor opened: the server refuses the save when it has changed since.
+  const shownAtOpen = useRef(summary)
   // Hand the focus back to the Edit button when the editor closes.
   useEffect(() => {
     if (wasEditing.current && !editing) opener.current?.focus()
@@ -57,7 +59,7 @@ export function SummaryCard({ recordingId, summary, locked }: Props) {
 
   const generated = summary.generated
   // Toasts its own errors and rethrows: the form and the dialog close only when it resolves and never toast again.
-  const save = async (next: { title: string; summary_md: string }) => {
+  const save = async (next: { title: string; summary_md: string }, shown: { title: string; summary_md: string }) => {
     const from = generated ?? summary
     setPending(true)
     try {
@@ -65,8 +67,8 @@ export function SummaryCard({ recordingId, summary, locked }: Props) {
         ...next,
         generated_title: from.title,
         generated_summary_md: from.summary_md,
-        current_title: summary.title,
-        current_summary_md: summary.summary_md,
+        current_title: shown.title,
+        current_summary_md: shown.summary_md,
       })
     } catch (e) {
       toast.error(t(e instanceof ApiError && e.status === 409 ? 'summaries.editStale' : 'summaries.editError'))
@@ -82,7 +84,7 @@ export function SummaryCard({ recordingId, summary, locked }: Props) {
     e.preventDefault()
     if (!canSave) return
     try {
-      await save({ title, summary_md: markdown })
+      await save({ title, summary_md: markdown }, shownAtOpen.current)
       setEditing(false)
     } catch {
       // save has already toasted; the form stays open.
@@ -99,7 +101,7 @@ export function SummaryCard({ recordingId, summary, locked }: Props) {
   const restore = async () => {
     if (!generated) return
     try {
-      await save(generated)
+      await save(generated, summary)
       setRestoreOpen(false)
       // The Restore button is gone once the page shows the generated text.
       opener.current?.focus()
@@ -124,6 +126,7 @@ export function SummaryCard({ recordingId, summary, locked }: Props) {
               aria-label={t('summaries.edit')}
               disabled={locked}
               onClick={() => {
+                shownAtOpen.current = summary
                 setTitle(summary.title)
                 setMarkdown(summary.summary_md)
                 setEditing(true)
