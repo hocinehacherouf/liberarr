@@ -5,7 +5,10 @@
     "copy": "Copier",
     "copied": "Copié",
     "copyFailed": "Échec de la copie : sélectionnez le texte à la main",
-    "notifications": "Notifications"
+    "notifications": "Notifications",
+    "close": "Fermer",
+    "save": "Enregistrer",
+    "cancel": "Annuler"
   },
   "auth": {
     "username": "Identifiant",
@@ -57,6 +60,12 @@
       "diarize": "locuteurs",
       "summarize": "résumé",
       "export": "export"
+    },
+    "rerunConfirm": {
+      "title": "Relancer « {{step}} » ?",
+      "transcript": "Vos corrections de la transcription peuvent être perdues si le nouveau texte diffère.",
+      "summary": "Votre titre et votre résumé modifiés peuvent être perdus si le nouveau texte diffère.",
+      "confirm": "Relancer"
     }
   },
   "player": {
@@ -95,14 +104,49 @@
       "owner": "Responsable",
       "due": "Échéance",
       "moment": "Moment"
-    }
+    },
+    "edit": "Modifier le résumé",
+    "editShort": "Modifier",
+    "titleLabel": "Titre",
+    "markdownLabel": "Résumé (Markdown)",
+    "preview": "Aperçu",
+    "edited": "Modifié",
+    "restore": "Restaurer la version générée",
+    "restoreTitle": "Restaurer le résumé généré ?",
+    "restoreDescription": "Votre titre et votre résumé seront remplacés par ceux générés.",
+    "restoreConfirm": "Restaurer",
+    "editStale": "Le résumé a changé depuis le chargement de cette page, ou il est régénéré. Il a été rechargé : réessayez.",
+    "editError": "Impossible d’enregistrer le résumé."
   },
   "transcription": {
     "copy": "Copier la transcription",
     "download": "Télécharger la transcription en fichier texte",
     "downloadShort": "Télécharger",
     "title": "Transcription",
-    "noTimestamps": "Ce fournisseur ne renvoie pas d'horodatage"
+    "noTimestamps": "Ce fournisseur ne renvoie pas d'horodatage",
+    "edit": "Modifier ce segment",
+    "editWhole": "Modifier la transcription",
+    "segmentText": "Texte du segment à {{time}}",
+    "wholeText": "Texte de la transcription",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "remove": "Supprimer ce segment",
+    "restore": "Restaurer",
+    "revert": "Rétablir",
+    "edited": "Modifié",
+    "original": "Original : {{text}}",
+    "removedSegment": "Segment supprimé",
+    "editStale": "La transcription a changé depuis le chargement de la page, ou elle est de nouveau en cours de transcription. Elle a été rechargée : réessayez.",
+    "editError": "Impossible d’enregistrer la correction.",
+    "findReplace": "Rechercher et remplacer",
+    "find": "Rechercher",
+    "replaceWith": "Remplacer par",
+    "matchCase": "Respecter la casse",
+    "replace": "Remplacer",
+    "findCount_one": "{{count}} segment sera modifié",
+    "findCount_other": "{{count}} segments seront modifiés",
+    "findNone": "Aucun segment ne correspond",
+    "findTooMany": "Trop de segments à la fois ({{max}} au maximum)."
   },
   "sidebar": {
     "title": "Barre latérale",

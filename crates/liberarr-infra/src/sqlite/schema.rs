@@ -68,6 +68,20 @@ CREATE TABLE speaker_names (
     PRIMARY KEY (recording_id, speaker)
 );
 ",
+    "
+CREATE TABLE transcript_edits (
+    recording_id INTEGER NOT NULL REFERENCES recordings(id),
+    segment      INTEGER NOT NULL,   -- unit index (0 = whole text without timestamps)
+    original     TEXT NOT NULL,      -- the engine's text of that unit when the edit was made
+    text         TEXT NOT NULL,      -- '' (after trim): removed
+    PRIMARY KEY (recording_id, segment)
+);
+CREATE TABLE summary_edits (
+    recording_id INTEGER PRIMARY KEY REFERENCES recordings(id),
+    title        TEXT NOT NULL,      -- the owner's title and summary, both stored whole
+    summary_md   TEXT NOT NULL
+);
+",
 ];
 
 /// Applies the pending migrations in one `BEGIN IMMEDIATE` transaction. The version is re-read

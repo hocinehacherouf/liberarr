@@ -208,6 +208,8 @@ tui.mouse_off: "Souris désactivée : le terminal sélectionne le texte. m pour 
 rerun.queued: "#%{id} : %{step} mis en file. L'étape s'exécute dans `liberarr serve` ou `liberarr tui`, ou au prochain `pull` ou `process`."
 rerun.busy: "#%{id} est déjà en cours de traitement : attendez la fin."
 rerun.nothing_failed: "#%{id} : aucune étape en échec. Choisissez-en une avec --step."
+rerun.drops_transcript_edits: "Attention : vos corrections de la transcription peuvent être perdues si le nouveau texte diffère."
+rerun.drops_summary_edit: "Attention : votre titre et votre résumé modifiés peuvent être perdus si le nouveau texte diffère."
 rerun.unknown_id: "Aucun enregistrement #%{id} (voir `liberarr serve` ou `liberarr tui`)."
 no_speech.marker: "aucune parole"
 no_speech.detail: "Aucune parole détectée : ni résumé ni note."

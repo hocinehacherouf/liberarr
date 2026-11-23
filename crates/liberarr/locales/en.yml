@@ -208,6 +208,8 @@ tui.mouse_off: "Mouse off: the terminal selects text. Press m to turn it back on
 rerun.queued: "#%{id}: %{step} queued. It runs in `liberarr serve` or `liberarr tui`, or with the next `pull` or `process`."
 rerun.busy: "#%{id} is already being processed: wait for it to finish."
 rerun.nothing_failed: "#%{id}: no failed step. Choose one with --step."
+rerun.drops_transcript_edits: "Warning: your transcript corrections may be lost if the new text differs."
+rerun.drops_summary_edit: "Warning: your edited title and summary may be lost if the new text differs."
 rerun.unknown_id: "No recording #%{id} (see `liberarr serve` or `liberarr tui`)."
 no_speech.marker: "no speech"
 no_speech.detail: "No speech detected: no summary or note was made."

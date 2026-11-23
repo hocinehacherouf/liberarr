@@ -5,7 +5,10 @@
     "copy": "Copy",
     "copied": "Copied",
     "copyFailed": "Copy failed: select the text by hand",
-    "notifications": "Notifications"
+    "notifications": "Notifications",
+    "close": "Close",
+    "save": "Save",
+    "cancel": "Cancel"
   },
   "auth": {
     "username": "Username",
@@ -57,6 +60,12 @@
       "diarize": "speakers",
       "summarize": "summary",
       "export": "export"
+    },
+    "rerunConfirm": {
+      "title": "Run “{{step}}” again?",
+      "transcript": "Your transcript corrections may be lost if the new text differs.",
+      "summary": "Your edited title and summary may be lost if the new text differs.",
+      "confirm": "Run again"
     }
   },
   "player": {
@@ -95,14 +104,49 @@
       "owner": "Owner",
       "due": "Due",
       "moment": "Time"
-    }
+    },
+    "edit": "Edit the summary",
+    "editShort": "Edit",
+    "titleLabel": "Title",
+    "markdownLabel": "Summary (Markdown)",
+    "preview": "Preview",
+    "edited": "Edited",
+    "restore": "Restore the generated version",
+    "restoreTitle": "Restore the generated summary?",
+    "restoreDescription": "Your title and summary will be replaced by the generated ones.",
+    "restoreConfirm": "Restore",
+    "editStale": "The summary changed since this page loaded, or is being generated again. It has been reloaded: try again.",
+    "editError": "Unable to save the summary."
   },
   "transcription": {
     "copy": "Copy the transcript",
     "download": "Download the transcript as a text file",
     "downloadShort": "Download",
     "title": "Transcript",
-    "noTimestamps": "This provider does not return timestamps"
+    "noTimestamps": "This provider does not return timestamps",
+    "edit": "Edit this segment",
+    "editWhole": "Edit the transcript",
+    "segmentText": "Text of the segment at {{time}}",
+    "wholeText": "Text of the transcript",
+    "save": "Save",
+    "cancel": "Cancel",
+    "remove": "Remove this segment",
+    "restore": "Restore",
+    "revert": "Revert",
+    "edited": "Edited",
+    "original": "Original: {{text}}",
+    "removedSegment": "Removed segment",
+    "editStale": "The transcript changed since this page loaded, or is being transcribed again. It has been reloaded: try again.",
+    "editError": "Unable to save the correction.",
+    "findReplace": "Find and replace",
+    "find": "Find",
+    "replaceWith": "Replace with",
+    "matchCase": "Match case",
+    "replace": "Replace",
+    "findCount_one": "{{count}} segment will change",
+    "findCount_other": "{{count}} segments will change",
+    "findNone": "No segment matches",
+    "findTooMany": "Too many segments at once ({{max}} at most)."
   },
   "sidebar": {
     "title": "Sidebar",

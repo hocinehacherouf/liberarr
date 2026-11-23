@@ -4,15 +4,17 @@ import type { Segment, Transcript } from '@/features/recordings/api'
 /** "Alice: " before the text of a segment with a known speaker; `speaker` gives the display name. */
 const who = (s: Segment, speaker: (n: number) => string) => (s.speaker == null ? '' : `${speaker(s.speaker)}: `)
 
-/** Plain text to paste: one segment per line, or the raw text when the provider gave no timestamps. */
+const kept = (t: Transcript) => t.segments.filter((s) => !s.removed)
+
+/** Plain text to paste: one segment per line (removed ones left out), or the text when the provider gave no timestamps. */
 export function transcriptCopyText(t: Transcript, speaker: (n: number) => string): string {
-  return t.has_timestamps ? t.segments.map((s) => who(s, speaker) + s.text).join('\n') : t.text
+  return t.has_timestamps ? kept(t).map((s) => who(s, speaker) + s.text).join('\n') : t.text
 }
 
-/** File content: `[12:34] text` per segment, or the raw text without timestamps. Ends with a newline. */
+/** File content: `[12:34] text` per segment, or the text without timestamps. Ends with a newline. */
 export function transcriptFileText(t: Transcript, speaker: (n: number) => string): string {
   const body = t.has_timestamps
-    ? t.segments.map((s) => `[${formatTimestamp(s.start)}] ${who(s, speaker)}${s.text}`).join('\n')
+    ? kept(t).map((s) => `[${formatTimestamp(s.start)}] ${who(s, speaker)}${s.text}`).join('\n')
     : t.text
   return `${body}\n`
 }

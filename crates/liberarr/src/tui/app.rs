@@ -6,6 +6,7 @@ mod draw;
 
 use super::theme;
 use crate::commands::pull::{Transfer, pull};
+use crate::commands::rerun::edits_at_risk;
 use crate::config::Config;
 use crate::container::{self, App};
 use liberarr_core::device::ports::KeyStore;
@@ -570,8 +571,15 @@ impl Ui {
         let Some(id) = self.detail.as_ref().map(|d| d.id) else {
             return Ok(());
         };
+        let warnings = self
+            .rt
+            .block_on(edits_at_risk(&self.app, id))?
+            .warnings(step);
         if self.rt.block_on(rerun(&self.app.db, id, Some(step)))? == Rerun::Busy {
             self.toast(t!("tui.rerun_busy").into_owned(), theme::warn());
+        } else if !warnings.is_empty() {
+            let queued = t!("tui.rerun_queued", step = step);
+            self.toast(format!("{queued} {}", warnings.join(" ")), theme::warn());
         } else {
             self.toast(
                 t!("tui.rerun_queued", step = step).into_owned(),

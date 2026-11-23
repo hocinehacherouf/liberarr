@@ -1,13 +1,12 @@
 import { ArrowLeftIcon, CircleCheckIcon, CircleDashedIcon, CircleXIcon, DownloadIcon, LoaderCircleIcon, MicOffIcon, TriangleAlertIcon } from 'lucide-react'
 import { useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import Markdown from 'react-markdown'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -19,11 +18,15 @@ import { CopyButton } from '@/shared/CopyButton'
 import { formatDate, formatTimestamp } from '@/shared/time'
 import { ActionsTable } from '@/features/summaries/ActionsTable'
 import { Mindmap } from '@/features/summaries/Mindmap'
+import { SummaryCard } from '@/features/summaries/SummaryCard'
+import { FindReplaceDialog } from '@/features/transcription/FindReplaceDialog'
 import { TranscriptView } from '@/features/transcription/TranscriptView'
 import { downloadText, transcriptCopyText, transcriptFileName, transcriptFileText } from '@/features/transcription/text'
-import { useRecording, useRenameSpeaker, useRerun, useSpeakerCount, type Job } from '@/features/recordings/api'
+import { useEditTranscript, useRecording, useRenameSpeaker, useRerun, useSpeakerCount, type Job, type SegmentChange } from '@/features/recordings/api'
+import { exportOnly, stepBusy } from '@/features/recordings/jobs'
 import { AudioBar } from '@/features/recordings/AudioBar'
 import { RecordingMenu } from '@/features/recordings/RecordingMenu'
+import { useRerunConfirm } from '@/features/recordings/RerunConfirm'
 import { StatusBadge } from '@/features/recordings/StatusBadge'
 
 // An icon per pipeline step state: the shape tells the state apart without the color.
@@ -50,6 +53,36 @@ function RecordingContent({ id }: { id: number }) {
   const { mutateAsync: renameSpeaker } = useRenameSpeaker(id)
   // Stable, so the memoised transcript rows do not re-render with the page.
   const onRename = useCallback((speaker: number, name: string) => renameSpeaker({ speaker, name }), [renameSpeaker])
+  const { mutateAsync: editTranscript } = useEditTranscript(id)
+  // Toasts its own errors and rethrows: the editors close only when it resolves and never toast again.
+  const onEdit = useCallback(
+    async (changes: SegmentChange[]) => {
+      try {
+        await editTranscript(changes)
+      } catch (e) {
+        toast.error(t(e instanceof ApiError && e.status === 409 ? 'transcription.editStale' : 'transcription.editError'))
+        throw e
+      }
+    },
+    [editTranscript, t],
+  )
+  const rerunStep = (step: string) =>
+    rerun.mutate(step, {
+      onError: (e) => {
+        const detail = e instanceof ApiError ? e.message : ''
+        // The server refuses a summary rerun (409) when `liberarr init` chose no engine.
+        const noEngine = e instanceof ApiError && e.status === 409 && step === 'summarize'
+        toast.error(
+          noEngine
+            ? t('recordings.noSummaryEngine')
+            : t(detail ? 'recordings.retryErrorWithDetail' : 'recordings.retryError', { error: detail }),
+        )
+      },
+    })
+  const confirmRerun = useRerunConfirm(rec, rerunStep)
+  // Where the focus returns when the rerun confirmation closes.
+  const menuButton = useRef<HTMLButtonElement>(null)
+  const retryButton = useRef<HTMLButtonElement>(null)
   const audio = useRef<HTMLAudioElement>(null)
   const [tab, setTab] = useState<string | null>(null)
 
@@ -86,7 +119,11 @@ function RecordingContent({ id }: { id: number }) {
       </div>
     )
 
-  const processing = rec.status === 'processing'
+  // The export a save queues makes the recording "processing": it must neither flash the alert nor lock anything.
+  const settled = exportOnly(rec.jobs)
+  const processing = rec.status === 'processing' && !settled
+  const transcriptLocked = stepBusy(rec.jobs, 'transcribe')
+  const summaryLocked = transcriptLocked || stepBusy(rec.jobs, 'summarize')
   const failedStep = rec.status === 'failed' ? rec.failed_step : null
   const failedJob = failedStep ? rec.jobs.findLast((j) => j.step === failedStep) : undefined
   const requested = rec.speakers.requested
@@ -99,27 +136,17 @@ function RecordingContent({ id }: { id: number }) {
     ...Array.from({ length: Math.max(MAX_SPEAKER_CHOICE, requested ?? 0) }, (_, i) => String(i + 1)),
   ]
 
-  const rerunStep = (step: string) =>
-    rerun.mutate(step, {
-      onError: (e) => {
-        const detail = e instanceof ApiError ? e.message : ''
-        // The server refuses a summary rerun (409) when `liberarr init` chose no engine.
-        const noEngine = e instanceof ApiError && e.status === 409 && step === 'summarize'
-        toast.error(
-          noEngine
-            ? t('recordings.noSummaryEngine')
-            : t(detail ? 'recordings.retryErrorWithDetail' : 'recordings.retryError', { error: detail }),
-        )
-      },
-    })
   const setSpeakerCount = (value: string | null) =>
     speakerCount.mutate(value == null || value === AUTOMATIC ? null : Number(value), {
       // 409: a step is running, or speaker detection is off.
       onError: (e) => toast.error(t(e instanceof ApiError && e.status === 409 ? 'speakers.countRefused' : 'speakers.countError')),
     })
 
-  // An empty transcript (a recording with no speech) gets no tab and no speaker-count control.
-  const transcript = rec.transcript && (rec.transcript.segments.length > 0 || rec.transcript.text.trim() !== '') ? rec.transcript : null
+  // An empty transcript (a recording with no speech) gets no tab and no speaker-count control; an edited one keeps its tab so Revert stays reachable.
+  const transcript =
+    rec.transcript && (rec.transcript.segments.length > 0 || rec.transcript.text.trim() !== '' || rec.transcript.text_original != null)
+      ? rec.transcript
+      : null
   // A tab exists only when its data does; the first one is the default.
   const tabs = [
     rec.summary && 'summary',
@@ -136,10 +163,17 @@ function RecordingContent({ id }: { id: number }) {
           {back}
           <div className="flex items-start justify-between gap-2">
             <h1 className="min-w-0 text-2xl font-semibold tracking-tight text-balance wrap-break-word">{title}</h1>
-            <RecordingMenu id={id} disabled={processing || rerun.isPending} onRerun={rerunStep} />
+            {/* The server status, not `processing`: it skips a rerun while an export runs, and still answers 202. */}
+            <RecordingMenu
+              id={id}
+              disabled={rec.status === 'processing' || rerun.isPending}
+              onRerun={(step) => confirmRerun.request(step, menuButton)}
+              triggerRef={menuButton}
+            />
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted-foreground">
-            <StatusBadge recording={rec} />
+            {/* The export a save queues is not "in progress": show the settled state meanwhile. */}
+            <StatusBadge recording={settled ? { no_speech: rec.no_speech, status: steps.some((j) => j.status === 'failed') ? 'failed' : 'done' } : rec} />
             <time dateTime={rec.created_at}>{formatDate(rec.created_at)}</time>
             {rec.duration_s != null && <span className="tabular-nums">{formatTimestamp(rec.duration_s)}</span>}
             {steps.length > 0 && (
@@ -171,7 +205,14 @@ function RecordingContent({ id }: { id: number }) {
               })}
             </AlertTitle>
             <div className="col-start-2 mt-2">
-              <Button variant="outline" size="sm" disabled={rerun.isPending} onClick={() => rerunStep(failedStep)} className="max-md:h-11">
+              <Button
+                ref={retryButton}
+                variant="outline"
+                size="sm"
+                disabled={rerun.isPending}
+                onClick={() => confirmRerun.request(failedStep, retryButton)}
+                className="max-md:h-11"
+              >
                 {t('recordings.retry')}
               </Button>
             </div>
@@ -210,20 +251,7 @@ function RecordingContent({ id }: { id: number }) {
             {rec.summary && (
               <>
                 <TabsContent value="summary">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>{t('summaries.summary')}</CardTitle>
-                      <CardAction>
-                        <CopyButton text={rec.summary.summary_md} label={t('summaries.copy')} />
-                      </CardAction>
-                    </CardHeader>
-                    <CardContent>
-                      {/* No raw HTML (react-markdown default) and no images: a remote URL in LLM output would leak. */}
-                      <div className="space-y-2 text-base leading-relaxed [&_a]:text-primary [&_a]:underline [&_h1]:mt-4 [&_h1]:font-semibold [&_h1]:text-primary [&_h1:first-child]:mt-0 [&_h2]:mt-4 [&_h2]:font-semibold [&_h2]:text-primary [&_h2:first-child]:mt-0 [&_h3]:mt-3 [&_h3]:font-semibold [&_li]:ml-5 [&_li::marker]:text-muted-foreground [&_ol]:list-decimal [&_ul]:list-disc">
-                        <Markdown disallowedElements={['img']}>{rec.summary.summary_md}</Markdown>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <SummaryCard recordingId={id} summary={rec.summary} locked={summaryLocked} />
                 </TabsContent>
                 <TabsContent value="actions">
                   <Card>
@@ -271,6 +299,7 @@ function RecordingContent({ id }: { id: number }) {
                         </>
                       )}
                       <div className="ml-auto flex items-center gap-2">
+                        <FindReplaceDialog transcript={transcript} locked={transcriptLocked} onEdit={onEdit} />
                         <CopyButton text={transcriptCopyText(transcript, speakerName)} label={t('transcription.copy')} />
                         <Button
                           variant="outline"
@@ -293,6 +322,8 @@ function RecordingContent({ id }: { id: number }) {
                       transcript={transcript}
                       speakerName={speakerName}
                       onRename={onRename}
+                      onEdit={onEdit}
+                      locked={transcriptLocked}
                       audio={audio}
                       onSeek={seek}
                     />
@@ -303,6 +334,7 @@ function RecordingContent({ id }: { id: number }) {
           </Tabs>
         )}
       </div>
+      {confirmRerun.dialog}
       <AudioBar audio={audio} src={`/api/recordings/${id}/audio`} durationHint={rec.duration_s} />
     </div>
   )
