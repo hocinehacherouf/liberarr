@@ -15,7 +15,7 @@ use liberarr_core::diarization::Diarization;
 use liberarr_core::jobs::JobInfo;
 use liberarr_core::recordings::{Recording, RecordingItem};
 use liberarr_core::search::TranscriptHit;
-use liberarr_core::summaries::{MeetingSummary, SummaryText};
+use liberarr_core::summaries::{MeetingSummary, RecordingActions, SummaryText};
 use liberarr_core::transcription::{SegmentChange, SegmentEdit, Transcript};
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -26,6 +26,8 @@ pub use auth::{Auth, AuthConfig};
 
 pub trait Backend: Send + Sync + 'static {
     fn list(&self) -> impl Future<Output = Result<Vec<RecordingItem>>> + Send;
+    /// Every recording with at least one action, newest first, with its whole action list.
+    fn actions(&self) -> impl Future<Output = Result<Vec<RecordingActions>>> + Send;
     /// Up to `max` hits in the corrected transcripts of every recording, newest recording first.
     fn search(
         &self,
@@ -126,6 +128,7 @@ pub fn router<B: Backend>(state: AppState<B>, bind: SocketAddr) -> Router {
         .route("/auth/me", get(api::me::<B>))
         .route("/search", post(api::search::<B>))
         .route("/recordings", get(api::list::<B>))
+        .route("/actions", get(api::list_actions::<B>))
         .route("/recordings/{id}", get(api::detail::<B>))
         .route("/recordings/{id}/audio", get(api::audio::<B>))
         .route("/recordings/{id}/rerun", post(api::rerun::<B>))
@@ -203,6 +206,23 @@ mod tests {
                 failed_step: None,
                 no_speech: false,
             }])
+        }
+        async fn actions(&self) -> Result<Vec<RecordingActions>> {
+            Ok(self
+                .list()
+                .await?
+                .into_iter()
+                .map(|item| RecordingActions {
+                    item,
+                    actions: vec![Action {
+                        action: "a".into(),
+                        owner: None,
+                        due: None,
+                        start: None,
+                        done: false,
+                    }],
+                })
+                .collect())
         }
         async fn search(&self, _: &str, max: usize) -> Result<Vec<TranscriptHit>> {
             let hit = TranscriptHit {
@@ -425,7 +445,12 @@ mod tests {
             status(&app, req("GET", "/api/health", None, "")).await,
             StatusCode::OK
         );
-        for uri in ["/api/recordings", "/api/recordings/1", "/api/auth/me"] {
+        for uri in [
+            "/api/recordings",
+            "/api/recordings/1",
+            "/api/actions",
+            "/api/auth/me",
+        ] {
             assert_eq!(
                 status(&app, req("GET", uri, None, "")).await,
                 StatusCode::UNAUTHORIZED
@@ -590,6 +615,14 @@ mod tests {
         );
         assert_eq!(
             status(&app, req("GET", "/api/recordings", Some("wrong"), "")).await,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            status(&app, req("GET", "/api/actions", Some("key"), "")).await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            status(&app, req("GET", "/api/actions", Some("wrong"), "")).await,
             StatusCode::UNAUTHORIZED
         );
     }
