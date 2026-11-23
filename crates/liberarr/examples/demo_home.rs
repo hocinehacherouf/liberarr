@@ -10,6 +10,7 @@
 //! Every name, company and sentence below is invented.
 use liberarr_core::device::ports::{DeviceLedger, KeyStore, UnlockMaterial};
 use liberarr_core::device::pull::serial_hash;
+use liberarr_core::diarization::{Diarization, DiarizationRepo, SpeakerTurn};
 use liberarr_core::jobs::{JobQueue, STEPS, next_step};
 use liberarr_core::recordings::{NewRecording, RecordingRepo, Source};
 use liberarr_core::summaries::{Action, MeetingSummary, SummaryRepo};
@@ -406,6 +407,10 @@ const DEMOS: &[Demo] = &[
     },
 ];
 
+/// Who speaks each of the 10 lines of "Weekly product sync"; the other recordings alternate 0, 1.
+const SYNC_SPEAKERS: [u32; 10] = [0, 1, 0, 2, 1, 0, 2, 1, 2, 0];
+const SYNC_NAMES: [&str; 3] = ["Maya", "Priya", "Jonas"];
+
 type AnyError = Box<dyn std::error::Error>;
 
 /// Ogg CRC-32 (polynomial 0x04C11DB7, no reflection, initial value 0).
@@ -590,6 +595,26 @@ async fn main() -> Result<(), AnyError> {
                     .collect(),
             };
             SummaryRepo::save(&db, id, &summary).await?;
+
+            let sync = d.title == DEMOS[0].title;
+            let pattern: &[u32] = if sync { &SYNC_SPEAKERS } else { &[0, 1] };
+            let turns = (0..d.speech.len())
+                .map(|n| SpeakerTurn {
+                    start: n as f64 * step,
+                    end: (n + 1) as f64 * step,
+                    speaker: pattern[n % pattern.len()],
+                })
+                .collect();
+            let diarization = Diarization {
+                turns,
+                engine: "demo".into(),
+            };
+            DiarizationRepo::save(&db, id, &diarization).await?;
+            if sync {
+                for (speaker, name) in (0..).zip(SYNC_NAMES) {
+                    db.set_name(id, speaker, Some(name)).await?;
+                }
+            }
         }
 
         // The jobs, taken and ended one by one as the worker does, up to the last step this
