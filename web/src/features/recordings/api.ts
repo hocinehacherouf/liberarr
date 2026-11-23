@@ -110,7 +110,7 @@ export const SEARCH_MIN_CHARS = 2
 export const SEARCH_MAX_CHARS = 200
 export const SEARCH_HITS = 20
 
-/** The query the client may send: control characters removed, trimmed; null unless 2–200 code points. */
+/** The query the client may send: control characters turned into spaces, trimmed; null unless 2–200 code points. */
 export function searchQuery(input: string): string | null {
   const q = input.replace(/\p{Cc}/gu, ' ').trim()
   const n = [...q].length
