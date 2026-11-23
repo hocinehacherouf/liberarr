@@ -1,13 +1,12 @@
 import { ArrowLeftIcon, CircleCheckIcon, CircleDashedIcon, CircleXIcon, DownloadIcon, LoaderCircleIcon, MicOffIcon, TriangleAlertIcon } from 'lucide-react'
 import { useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import Markdown from 'react-markdown'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -19,6 +18,7 @@ import { CopyButton } from '@/shared/CopyButton'
 import { formatDate, formatTimestamp } from '@/shared/time'
 import { ActionsTable } from '@/features/summaries/ActionsTable'
 import { Mindmap } from '@/features/summaries/Mindmap'
+import { SummaryCard } from '@/features/summaries/SummaryCard'
 import { FindReplaceDialog } from '@/features/transcription/FindReplaceDialog'
 import { TranscriptView } from '@/features/transcription/TranscriptView'
 import { downloadText, transcriptCopyText, transcriptFileName, transcriptFileText } from '@/features/transcription/text'
@@ -26,6 +26,7 @@ import { useEditTranscript, useRecording, useRenameSpeaker, useRerun, useSpeaker
 import { exportOnly, stepBusy } from '@/features/recordings/jobs'
 import { AudioBar } from '@/features/recordings/AudioBar'
 import { RecordingMenu } from '@/features/recordings/RecordingMenu'
+import { useRerunConfirm } from '@/features/recordings/RerunConfirm'
 import { StatusBadge } from '@/features/recordings/StatusBadge'
 
 // An icon per pipeline step state: the shape tells the state apart without the color.
@@ -65,6 +66,20 @@ function RecordingContent({ id }: { id: number }) {
     },
     [editTranscript, t],
   )
+  const rerunStep = (step: string) =>
+    rerun.mutate(step, {
+      onError: (e) => {
+        const detail = e instanceof ApiError ? e.message : ''
+        // The server refuses a summary rerun (409) when `liberarr init` chose no engine.
+        const noEngine = e instanceof ApiError && e.status === 409 && step === 'summarize'
+        toast.error(
+          noEngine
+            ? t('recordings.noSummaryEngine')
+            : t(detail ? 'recordings.retryErrorWithDetail' : 'recordings.retryError', { error: detail }),
+        )
+      },
+    })
+  const confirmRerun = useRerunConfirm(rec, rerunStep)
   const audio = useRef<HTMLAudioElement>(null)
   const [tab, setTab] = useState<string | null>(null)
 
@@ -104,6 +119,7 @@ function RecordingContent({ id }: { id: number }) {
   // The export a save queues makes the recording "processing": it must neither flash the alert nor lock anything.
   const processing = rec.status === 'processing' && !exportOnly(rec.jobs)
   const transcriptLocked = stepBusy(rec.jobs, 'transcribe')
+  const summaryLocked = transcriptLocked || stepBusy(rec.jobs, 'summarize')
   const failedStep = rec.status === 'failed' ? rec.failed_step : null
   const failedJob = failedStep ? rec.jobs.findLast((j) => j.step === failedStep) : undefined
   const requested = rec.speakers.requested
@@ -116,19 +132,6 @@ function RecordingContent({ id }: { id: number }) {
     ...Array.from({ length: Math.max(MAX_SPEAKER_CHOICE, requested ?? 0) }, (_, i) => String(i + 1)),
   ]
 
-  const rerunStep = (step: string) =>
-    rerun.mutate(step, {
-      onError: (e) => {
-        const detail = e instanceof ApiError ? e.message : ''
-        // The server refuses a summary rerun (409) when `liberarr init` chose no engine.
-        const noEngine = e instanceof ApiError && e.status === 409 && step === 'summarize'
-        toast.error(
-          noEngine
-            ? t('recordings.noSummaryEngine')
-            : t(detail ? 'recordings.retryErrorWithDetail' : 'recordings.retryError', { error: detail }),
-        )
-      },
-    })
   const setSpeakerCount = (value: string | null) =>
     speakerCount.mutate(value == null || value === AUTOMATIC ? null : Number(value), {
       // 409: a step is running, or speaker detection is off.
@@ -156,7 +159,7 @@ function RecordingContent({ id }: { id: number }) {
           {back}
           <div className="flex items-start justify-between gap-2">
             <h1 className="min-w-0 text-2xl font-semibold tracking-tight text-balance wrap-break-word">{title}</h1>
-            <RecordingMenu id={id} disabled={processing || rerun.isPending} onRerun={rerunStep} />
+            <RecordingMenu id={id} disabled={processing || rerun.isPending} onRerun={confirmRerun.request} />
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted-foreground">
             <StatusBadge recording={rec} />
@@ -191,7 +194,7 @@ function RecordingContent({ id }: { id: number }) {
               })}
             </AlertTitle>
             <div className="col-start-2 mt-2">
-              <Button variant="outline" size="sm" disabled={rerun.isPending} onClick={() => rerunStep(failedStep)} className="max-md:h-11">
+              <Button variant="outline" size="sm" disabled={rerun.isPending} onClick={() => confirmRerun.request(failedStep)} className="max-md:h-11">
                 {t('recordings.retry')}
               </Button>
             </div>
@@ -230,20 +233,7 @@ function RecordingContent({ id }: { id: number }) {
             {rec.summary && (
               <>
                 <TabsContent value="summary">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>{t('summaries.summary')}</CardTitle>
-                      <CardAction>
-                        <CopyButton text={rec.summary.summary_md} label={t('summaries.copy')} />
-                      </CardAction>
-                    </CardHeader>
-                    <CardContent>
-                      {/* No raw HTML (react-markdown default) and no images: a remote URL in LLM output would leak. */}
-                      <div className="space-y-2 text-base leading-relaxed [&_a]:text-primary [&_a]:underline [&_h1]:mt-4 [&_h1]:font-semibold [&_h1]:text-primary [&_h1:first-child]:mt-0 [&_h2]:mt-4 [&_h2]:font-semibold [&_h2]:text-primary [&_h2:first-child]:mt-0 [&_h3]:mt-3 [&_h3]:font-semibold [&_li]:ml-5 [&_li::marker]:text-muted-foreground [&_ol]:list-decimal [&_ul]:list-disc">
-                        <Markdown disallowedElements={['img']}>{rec.summary.summary_md}</Markdown>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <SummaryCard recordingId={id} summary={rec.summary} locked={summaryLocked} />
                 </TabsContent>
                 <TabsContent value="actions">
                   <Card>
@@ -326,6 +316,7 @@ function RecordingContent({ id }: { id: number }) {
           </Tabs>
         )}
       </div>
+      {confirmRerun.dialog}
       <AudioBar audio={audio} src={`/api/recordings/${id}/audio`} durationHint={rec.duration_s} />
     </div>
   )

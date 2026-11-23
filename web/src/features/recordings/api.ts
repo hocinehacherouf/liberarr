@@ -120,6 +120,20 @@ export function useEditTranscript(id: number) {
   })
 }
 
+/** Saves the owner's title and Markdown (204). `generated_*` is the engine's pair the page started from; the API refuses (409) when it changed or a transcription or summary runs. */
+export function useEditSummary(id: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { title: string; summary_md: string; generated_title: string; generated_summary_md: string }) =>
+      api(`/api/recordings/${id}/summary`, { method: 'PUT', body: JSON.stringify(body) }),
+    // Returned, so the promise settles once the page shows the saved text.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['recordings'] }),
+    onError: (e) => {
+      if (e instanceof ApiError && (e.status === 409 || e.status === 404)) void qc.invalidateQueries({ queryKey: ['recordings', id] })
+    },
+  })
+}
+
 export function useRenameSpeaker(id: number) {
   const qc = useQueryClient()
   return useMutation({

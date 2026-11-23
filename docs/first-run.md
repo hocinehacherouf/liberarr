@@ -72,7 +72,7 @@ Each processed recording is also written as a Markdown note in `~/.liberarr/obsi
 | Command | What it does |
 |---|---|
 | `liberarr process <files…>` | Imports local audio files and runs the pipeline on them. A file already imported is not duplicated. Ogg files of any size work. Other formats need a cloud transcriber (`local` reads Ogg Opus only) and must stay under about 24 MB (the providers' upload limit). Prints the number (`#id`) of each recording. |
-| `liberarr rerun <id> [--step transcribe\|summarize\|diarize\|export]` | Queues a step again, and the steps after it. Without `--step`: the failed step (an error if none failed). Refused while the recording is being processed. Prior outputs are kept until the step succeeds. The step runs in `serve` or `tui`, or with the next `pull` or `process`. |
+| `liberarr rerun <id> [--step transcribe\|summarize\|diarize\|export]` | Queues a step again, and the steps after it. Without `--step`: the failed step (an error if none failed). Refused while the recording is being processed. Prior outputs are kept until the step succeeds. A `transcribe` or `summarize` rerun prints a warning when it may drop your corrections ([editing](editing.md)). The step runs in `serve` or `tui`, or with the next `pull` or `process`. |
 | `liberarr status` | Known devices, last pull, number of recordings in progress, failed or without speech. |
 
 A recording with no speech (a pocket recording, silence) gets a transcript but no summary and no note.
