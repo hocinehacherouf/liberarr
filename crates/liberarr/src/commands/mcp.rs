@@ -13,7 +13,7 @@ use jiff::tz::TimeZone;
 use liberarr_core::diarization::{DiarizationRepo, speaker_for, speaker_label};
 use liberarr_core::recordings::{RecordingItem, RecordingRepo, RecordingStatus};
 use liberarr_core::search::{MAX_QUERY_CHARS, MIN_QUERY_CHARS, fold, query_ok, search_transcripts};
-use liberarr_core::summaries::SummaryRepo;
+use liberarr_core::summaries::{SummaryRepo, actions_by_recording, open_with_index};
 use liberarr_core::transcription::{Transcript, TranscriptRepo};
 use liberarr_infra::sqlite::Db;
 use rust_i18n::t;
@@ -496,20 +496,15 @@ impl Server {
         let start = cursor(args, "act:")?;
         let tz = TimeZone::system();
         let mut found = Vec::new();
-        // shortcut: one summary query per recording; fine for one person's recordings, add a
-        // dedicated query if a home ever holds thousands.
-        for item in self.db.list_items().await? {
-            if !filter.keeps(&item, &tz) {
+        for g in actions_by_recording(&self.db, &self.db).await? {
+            if !filter.keeps(&g.item, &tz) {
                 continue;
             }
-            let Some(s) = SummaryRepo::get(&self.db, item.id).await? else {
-                continue;
-            };
-            for (index, a) in s.actions.iter().enumerate().filter(|(_, a)| !a.done) {
+            for (index, a) in open_with_index(&g.actions) {
                 found.push(json!({
-                    "recording_id": item.id,
-                    "recording_title": s.title,
-                    "created_at": local(item.created_at, &tz),
+                    "recording_id": g.item.id,
+                    "recording_title": g.item.title,
+                    "created_at": local(g.item.created_at, &tz),
                     "index": index,
                     "action": a.action,
                     "owner": a.owner,
@@ -924,6 +919,25 @@ mod tests {
         // The text block carries the same JSON.
         let text = r[2]["result"]["content"][0]["text"].as_str().unwrap();
         assert_eq!(&serde_json::from_str::<Value>(text).unwrap(), summary);
+        // list_open_actions: the open action only, with the same keys as before the shared core rule.
+        let listed = exchange(&mut s, call(9, "list_open_actions", "{}").as_bytes()).await;
+        let open = listed[0]["result"]["structuredContent"]["actions"]
+            .as_array()
+            .unwrap();
+        assert_eq!(open.len(), 1); // the ticked action is left out
+        let a = &open[0];
+        assert_eq!(a["recording_id"], id);
+        assert_eq!(a["recording_title"], "Weekly \"budget\"\nreview");
+        assert!(a["created_at"].is_string());
+        assert_eq!(
+            (&a["index"], &a["action"], &a["owner"], &a["due"]),
+            (
+                &json!(0),
+                &json!("Send the budget"),
+                &json!("Alice"),
+                &Value::Null
+            )
+        );
 
         // Modern: every request carries its version; no handshake.
         let (_home, mut s, id) = server("eras-modern", short()).await;
