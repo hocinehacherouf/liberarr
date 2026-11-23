@@ -10,6 +10,7 @@ use liberarr_core::Error;
 use liberarr_core::diarization::{SpeakerTurn, speaker_for};
 use liberarr_core::jobs::{JobInfo, JobStatus, STEPS, busy, export_needed};
 use liberarr_core::recordings::{RecordingItem, RecordingStatus};
+use liberarr_core::search::query_ok;
 use liberarr_core::summaries::{Action, MeetingSummary, SummaryText};
 use liberarr_core::transcription::{
     SegmentChange, SegmentEdit, Transcript, apply_edits, unit_texts,
@@ -291,6 +292,54 @@ pub async fn list<B: Backend>(
 ) -> Result<Json<Vec<ItemView>>, ApiError> {
     let items = s.backend.list().await?;
     Ok(Json(items.into_iter().map(Into::into).collect()))
+}
+
+const SEARCH_HITS: usize = 20;
+
+#[derive(Deserialize)]
+pub struct Search {
+    q: String,
+}
+
+#[derive(Serialize)]
+pub struct HitView {
+    recording_id: i64,
+    start: Option<f64>,
+    before: String,
+    #[serde(rename = "match")]
+    hit: String,
+    after: String,
+}
+
+#[derive(Serialize)]
+pub struct SearchView {
+    hits: Vec<HitView>,
+    truncated: bool,
+}
+
+/// The query and the matches are never logged, and the errors are fixed phrases.
+pub async fn search<B: Backend>(
+    State(s): State<AppState<B>>,
+    Json(body): Json<Search>,
+) -> Result<Json<SearchView>, ApiError> {
+    if !query_ok(&body.q) {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "invalid query"));
+    }
+    // One more than shown tells whether the list was cut.
+    let hits = s.backend.search(body.q.trim(), SEARCH_HITS + 1).await?;
+    let truncated = hits.len() > SEARCH_HITS;
+    let hits = hits
+        .into_iter()
+        .take(SEARCH_HITS)
+        .map(|h| HitView {
+            recording_id: h.recording_id,
+            start: h.start,
+            before: h.excerpt.before,
+            hit: h.excerpt.hit,
+            after: h.excerpt.after,
+        })
+        .collect();
+    Ok(Json(SearchView { hits, truncated }))
 }
 
 pub async fn detail<B: Backend>(
