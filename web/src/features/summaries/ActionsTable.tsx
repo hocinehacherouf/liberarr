@@ -11,15 +11,21 @@ interface Props {
   recordingId: number
   actions: Action[]
   onSeek: (seconds: number) => void
+  /** Rows to show; `index` is the position in `actions`, which the API takes. */
+  visible?: (action: Action, index: number) => boolean
+  /** Called on a checkbox change, before the request. */
+  onToggle?: (index: number) => void
+  /** Id of the element naming the table. */
+  labelledBy?: string
 }
 
-export function ActionsTable({ recordingId, actions, onSeek }: Props) {
+export function ActionsTable({ recordingId, actions, onSeek, visible, onToggle, labelledBy }: Props) {
   const { t } = useTranslation()
   const toggle = useToggleAction(recordingId)
 
   if (!actions.length) return <p className="text-sm text-muted-foreground">{t('summaries.actions.none')}</p>
   return (
-    <Table>
+    <Table aria-labelledby={labelledBy}>
       <TableHeader>
         <TableRow>
           <TableHead>{t('summaries.actions.done')}</TableHead>
@@ -30,13 +36,15 @@ export function ActionsTable({ recordingId, actions, onSeek }: Props) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {actions.map((a, index) => (
+        {actions.map((a, index) =>
+          visible?.(a, index) === false ? null : (
           <TableRow key={index} className="align-top">
             <TableCell>
               <Checkbox
                 aria-label={t('summaries.actions.markDone', { action: a.action })}
                 checked={a.done}
-                onCheckedChange={(done) =>
+                onCheckedChange={(done) => {
+                  onToggle?.(index)
                   toggle.mutate(
                     { index, action: a.action, done },
                     {
@@ -46,7 +54,7 @@ export function ActionsTable({ recordingId, actions, onSeek }: Props) {
                         ),
                     },
                   )
-                }
+                }}
               />
             </TableCell>
             <TableCell className={`min-w-48 whitespace-normal ${a.done ? 'text-muted-foreground line-through' : ''}`}>
@@ -61,6 +69,7 @@ export function ActionsTable({ recordingId, actions, onSeek }: Props) {
                   variant="outline"
                   size="xs"
                   className="font-mono tabular-nums"
+                  aria-label={t('summaries.actions.openAt', { action: a.action, time: formatTimestamp(a.start) })}
                   onClick={() => onSeek(a.start as number)}
                 >
                   {formatTimestamp(a.start)}
@@ -68,7 +77,8 @@ export function ActionsTable({ recordingId, actions, onSeek }: Props) {
               )}
             </TableCell>
           </TableRow>
-        ))}
+          ),
+        )}
       </TableBody>
     </Table>
   )

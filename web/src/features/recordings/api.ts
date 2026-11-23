@@ -84,6 +84,24 @@ export const useRecordings = () =>
     refetchInterval: (q) => (q.state.data?.some((r) => r.status === 'processing') ? POLL_MS : false),
   })
 
+/** Whether any recording is in progress (what the list and the actions poll on). */
+export const useProcessing = () => useRecordings().data?.some((r) => r.status === 'processing') ?? false
+
+export interface RecordingActions {
+  recording: RecordingItem
+  actions: Action[]
+}
+
+/** Every recording's actions, newest first (an action's position is its index in `actions`). Key ['recordings', 'actions'], so every invalidation of ['recordings'] refreshes it. */
+export const useActions = () => {
+  const processing = useProcessing()
+  return useQuery({
+    queryKey: ['recordings', 'actions'],
+    queryFn: () => api<RecordingActions[]>('/api/actions'),
+    refetchInterval: processing ? POLL_MS : false,
+  })
+}
+
 export const useRecording = (id: number) =>
   useQuery({
     queryKey: ['recordings', id],
@@ -205,13 +223,20 @@ export function useToggleAction(id: number) {
         method: 'PATCH',
         body: JSON.stringify({ action, done }),
       }),
-    // The PATCH returns the whole updated array: put it straight into the cached detail.
-    onSuccess: (actions) =>
+    // The PATCH returns the whole updated array: put it straight into the cached detail and the actions list.
+    onSuccess: (actions) => {
       qc.setQueryData<RecordingDetail>(['recordings', id], (d) =>
         d?.summary ? { ...d, summary: { ...d.summary, actions } } : d,
-      ),
+      )
+      qc.setQueryData<RecordingActions[]>(['recordings', 'actions'], (list) =>
+        list?.map((g) => (g.recording.id === id ? { ...g, actions } : g)),
+      )
+    },
     onError: (e) => {
-      if (e instanceof ApiError && e.status === 409) void qc.invalidateQueries({ queryKey: ['recordings', id] })
+      if (e instanceof ApiError && e.status === 409) {
+        void qc.invalidateQueries({ queryKey: ['recordings', id] })
+        void qc.invalidateQueries({ queryKey: ['recordings', 'actions'] })
+      }
     },
   })
 }

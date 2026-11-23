@@ -1,9 +1,9 @@
-import { ChevronsUpDownIcon, UserIcon } from 'lucide-react'
-import { useState } from 'react'
+import { ChevronsUpDownIcon, ListChecksIcon, UserIcon } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink, useLocation } from 'react-router'
 import { useLogout, useMe } from '@/features/auth/api'
-import { useRecordings } from '@/features/recordings/api'
+import { useActions, useProcessing, useRecordings } from '@/features/recordings/api'
 import { recordingStatus } from '@/features/recordings/StatusBadge'
 import { recordingTitle } from '@/features/recordings/title'
 import { Logo } from '@/shared/Logo'
@@ -28,6 +28,7 @@ import {
   SidebarHeader,
   SidebarInput,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSkeleton,
@@ -35,6 +36,41 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import { ThemeMenu } from '@/app/ThemeMenu'
+
+function ActionsMenu() {
+  const { t } = useTranslation()
+  const { data, refetch } = useActions()
+  const { pathname } = useLocation()
+  const { setOpenMobile } = useSidebar()
+  const open = data?.reduce((n, g) => n + g.actions.filter((a) => !a.done).length, 0) ?? 0
+
+  // The one place that refetches when processing ends (a summary may have landed after the last poll):
+  // this entry is always mounted, the page is not.
+  const processing = useProcessing()
+  const wasProcessing = useRef(false)
+  useEffect(() => {
+    if (wasProcessing.current && !processing) void refetch()
+    wasProcessing.current = processing
+  }, [processing, refetch])
+
+  return (
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          isActive={pathname === '/actions'}
+          tooltip={t('actions.title')}
+          className="pr-6 max-md:h-11"
+          render={<NavLink to="/actions" onClick={() => setOpenMobile(false)} />}
+        >
+          <ListChecksIcon aria-hidden="true" />
+          <span className="truncate">{t('actions.title')}</span>
+          {open > 0 && <span className="sr-only">{t('actions.openCount', { count: open })}</span>}
+        </SidebarMenuButton>
+        {open > 0 && <SidebarMenuBadge aria-hidden="true">{open}</SidebarMenuBadge>}
+      </SidebarMenuItem>
+    </SidebarMenu>
+  )
+}
 
 function RecordingsMenu({ search }: { search: string }) {
   const { t } = useTranslation()
@@ -112,6 +148,11 @@ export function AppSidebar() {
         </Link>
       </SidebarHeader>
       <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <ActionsMenu />
+          </SidebarGroupContent>
+        </SidebarGroup>
         <SidebarGroup className="group-data-[collapsible=icon]:hidden">
           <SidebarGroupLabel>{t('recordings.title')}</SidebarGroupLabel>
           <SidebarGroupContent className="space-y-2">

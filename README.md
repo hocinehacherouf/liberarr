@@ -45,7 +45,7 @@ Liberarr is an independent project, **not affiliated with, endorsed by or sponso
 - **Corrections:** fix a transcript (edit, remove, find and replace) and the summary in the web UI; the note, MCP and the terminal app use the corrected text ([editing](docs/editing.md)).
 - **Obsidian export:** each recording becomes a Markdown note in the folder of your choice.
 - **Terminal app** (`liberarr tui`): one dashboard with the recordings, the selected one's summary, transcript, mind map and actions to tick, the pipeline and the device pull.
-- **Local web UI** (`liberarr serve`): read recordings, play the audio next to the transcript, jump to a recording, or to where something was said, with Ctrl/⌘+K, rerun a failed step, in a light or dark theme, behind a login.
+- **Local web UI** (`liberarr serve`): read recordings, play the audio next to the transcript, see every recording's action items on one page, jump to a recording, or to where something was said, with Ctrl/⌘+K, rerun a failed step, in a light or dark theme, behind a login.
 - **English and French**, for the interface and for the summaries.
 
 <div align="center">

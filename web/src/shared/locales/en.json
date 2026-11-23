@@ -88,6 +88,17 @@
     "countRefused": "Unable to change now: a step is running or speaker detection is off.",
     "countError": "Unable to change the number of speakers."
   },
+  "actions": {
+    "title": "Actions",
+    "filter": "Show",
+    "open": "Open",
+    "all": "All",
+    "openCount_one": "{{count}} open action",
+    "openCount_other": "{{count}} open actions",
+    "noneOpen": "No open actions.",
+    "none": "No actions yet: they appear with a recording's summary.",
+    "loadError": "Unable to load the actions."
+  },
   "summaries": {
     "copy": "Copy the summary",
     "summary": "Summary",
@@ -99,6 +110,7 @@
       "updateError": "Unable to update the action.",
       "stale": "The actions changed since this page loaded. They have been reloaded: try again.",
       "markDone": "Mark “{{action}}” as done",
+      "openAt": "Open “{{action}}” at {{time}}",
       "done": "Done",
       "action": "Action",
       "owner": "Owner",
@@ -150,7 +162,7 @@
   },
   "sidebar": {
     "title": "Sidebar",
-    "description": "Navigation between the recordings.",
+    "description": "Navigation between the actions and the recordings.",
     "toggle": "Toggle the sidebar"
   },
   "theme": {
@@ -161,7 +173,8 @@
   },
   "palette": {
     "title": "Command palette",
-    "description": "Search a recording or what was said, change the theme or sign out.",
+    "description": "Search a recording or what was said, open the actions, change the theme or sign out.",
+    "goToActions": "Go to actions",
     "transcripts": "In transcripts",
     "searching": "Searching the transcripts…",
     "searchError": "The transcript search failed.",
