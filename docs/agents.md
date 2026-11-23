@@ -58,7 +58,8 @@ It works while `serve`, `tui` or a pull runs: it only reads the database.
 
 | Tool | Gives |
 |---|---|
-| `list_recordings` | Recordings, newest first: id, title, local date and time, duration, status. Filters: `query` (title text), `since`, `until` (`YYYY-MM-DD`). Pages of 20 (`limit` up to 50), with `next_cursor`. |
+| `list_recordings` | Recordings, newest first: id, title, local date and time, duration, status. Filters: `query` (title text, accents ignored), `since`, `until` (`YYYY-MM-DD`). Pages of 20 (`limit` up to 50), with `next_cursor`. |
+| `search_transcripts` | Where something was said: the matching transcript segments (your corrections included), case and accents ignored, newest first, with the time and an excerpt. Same filters and pages as `list_recordings`; `query` is required (2 to 200 characters). |
 | `get_summary` | The summary and the action items of one recording (`id`). |
 | `get_transcript` | The transcript of one recording (`id`), in pages of about 20 KB of timed segments, with `next_cursor`. |
 | `list_open_actions` | Action items not ticked yet, across recordings, with owner and due date. Same filters and pages as `list_recordings`. |

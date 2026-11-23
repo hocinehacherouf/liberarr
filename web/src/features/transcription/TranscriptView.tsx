@@ -20,6 +20,8 @@ interface Props {
   locked: boolean
   audio: RefObject<HTMLAudioElement | null>
   onSeek: (seconds: number) => void
+  /** Scrolls the segment at `time` into view once per `key` (the router's location key), and on mount. */
+  focus?: { time: number; key: string }
 }
 
 /** Runs a save and tells whether it went through; the caller of `onEdit` has already toasted a failure. */
@@ -303,7 +305,7 @@ function WholeText({ transcript, locked, onEdit }: { transcript: Transcript; loc
   )
 }
 
-export function TranscriptView({ transcript, speakerName, onRename, onEdit, locked, audio, onSeek }: Props) {
+export function TranscriptView({ transcript, speakerName, onRename, onEdit, locked, audio, onSeek, focus }: Props) {
   // The playback time lives here, not in the page, so the summary and mind map never re-render on it.
   const [time, setTime] = useState(0)
   const [editing, setEditing] = useState<number | null>(null)
@@ -311,16 +313,29 @@ export function TranscriptView({ transcript, speakerName, onRename, onEdit, lock
     const el = audio.current
     if (!el) return
     const update = () => setTime(el.currentTime)
-    el.addEventListener('timeupdate', update)
-    return () => el.removeEventListener('timeupdate', update)
+    // A deep link seeks before this listener or the metadata exists: read the time once, and follow the seek and the metadata.
+    update()
+    const events = ['timeupdate', 'seeked', 'loadedmetadata']
+    for (const e of events) el.addEventListener(e, update)
+    return () => {
+      for (const e of events) el.removeEventListener(e, update)
+    }
   }, [audio])
   const onChange = useCallback((index: number, text: string) => onEdit([unitChange(transcript, index, text)]), [onEdit, transcript])
   const stopEdit = useCallback(() => setEditing(null), [])
+  const list = useRef<HTMLOListElement>(null)
+  useEffect(() => {
+    if (!focus || !transcript.has_timestamps) return
+    // Default (instant) scrolling: reduced motion is respected.
+    list.current?.children[transcript.segments.findLastIndex((s) => s.start <= focus.time)]?.scrollIntoView({ block: 'center' })
+    // Only a new jump scrolls: a refetched transcript (an edit, a poll) must not.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- keyed on focus.key alone, as said above
+  }, [focus?.key])
 
   if (!transcript.has_timestamps) return <WholeText transcript={transcript} locked={locked} onEdit={onEdit} />
 
   return (
-    <ol className="-mx-2 space-y-0.5">
+    <ol ref={list} className="-mx-2 space-y-0.5">
       {transcript.segments.map((s, i) => (
         <Row
           key={i}

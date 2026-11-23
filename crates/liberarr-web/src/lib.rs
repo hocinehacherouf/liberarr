@@ -14,6 +14,7 @@ use liberarr_core::Result;
 use liberarr_core::diarization::Diarization;
 use liberarr_core::jobs::JobInfo;
 use liberarr_core::recordings::{Recording, RecordingItem};
+use liberarr_core::search::TranscriptHit;
 use liberarr_core::summaries::{MeetingSummary, SummaryText};
 use liberarr_core::transcription::{SegmentChange, SegmentEdit, Transcript};
 use std::collections::BTreeMap;
@@ -25,6 +26,12 @@ pub use auth::{Auth, AuthConfig};
 
 pub trait Backend: Send + Sync + 'static {
     fn list(&self) -> impl Future<Output = Result<Vec<RecordingItem>>> + Send;
+    /// Up to `max` hits in the corrected transcripts of every recording, newest recording first.
+    fn search(
+        &self,
+        query: &str,
+        max: usize,
+    ) -> impl Future<Output = Result<Vec<TranscriptHit>>> + Send;
     fn recording(&self, id: i64) -> impl Future<Output = Result<Option<Recording>>> + Send;
     fn transcript(&self, id: i64) -> impl Future<Output = Result<Option<Transcript>>> + Send;
     fn summary(&self, id: i64) -> impl Future<Output = Result<Option<MeetingSummary>>> + Send;
@@ -117,6 +124,7 @@ pub fn router<B: Backend>(state: AppState<B>, bind: SocketAddr) -> Router {
     let protected = Router::new()
         .route("/auth/logout", post(api::logout::<B>))
         .route("/auth/me", get(api::me::<B>))
+        .route("/search", post(api::search::<B>))
         .route("/recordings", get(api::list::<B>))
         .route("/recordings/{id}", get(api::detail::<B>))
         .route("/recordings/{id}/audio", get(api::audio::<B>))
@@ -165,6 +173,7 @@ mod tests {
     use liberarr_core::diarization::SpeakerTurn;
     use liberarr_core::jobs::JobStatus;
     use liberarr_core::recordings::{RecordingStatus, Source};
+    use liberarr_core::search::Excerpt;
     use liberarr_core::summaries::Action;
     use liberarr_core::transcription::Segment;
     use std::sync::Mutex;
@@ -179,6 +188,8 @@ mod tests {
         edits: Arc<Mutex<Vec<SegmentEdit>>>,
         /// `LIBERARR_DIARIZE=off`.
         diarize_off: bool,
+        /// How many hits `search` has to give.
+        search_hits: usize,
     }
     impl Backend for Fake {
         async fn list(&self) -> Result<Vec<RecordingItem>> {
@@ -192,6 +203,18 @@ mod tests {
                 failed_step: None,
                 no_speech: false,
             }])
+        }
+        async fn search(&self, _: &str, max: usize) -> Result<Vec<TranscriptHit>> {
+            let hit = TranscriptHit {
+                recording_id: 1,
+                start: Some(1.5),
+                excerpt: Excerpt {
+                    before: "la ".into(),
+                    hit: "Réunion".into(),
+                    after: " de lundi".into(),
+                },
+            };
+            Ok(vec![hit; max.min(self.search_hits)])
         }
         async fn recording(&self, id: i64) -> Result<Option<Recording>> {
             Ok((id == 1).then(|| Recording {
@@ -408,6 +431,10 @@ mod tests {
                 StatusCode::UNAUTHORIZED
             );
         }
+        assert_eq!(
+            status(&app, req("POST", "/api/search", None, r#"{"q":"ab"}"#)).await,
+            StatusCode::UNAUTHORIZED
+        );
         // A forged or tampered session cookie is no better than none.
         let mut r = req("GET", "/api/recordings", None, "");
         r.headers_mut().insert(
@@ -619,6 +646,54 @@ mod tests {
             .await
             .expect("body");
         serde_json::from_slice(&bytes).expect("json")
+    }
+
+    #[tokio::test]
+    async fn search_checks_its_input_and_shapes_the_hits() {
+        let app = app_with(Fake {
+            search_hits: 25,
+            ..Fake::default()
+        });
+        let long = format!(r#"{{"q":"{}"}}"#, "a".repeat(201));
+        // The last one carries a JSON-escaped control character (U+0001).
+        for bad in [
+            r#"{"q":"a"}"#,
+            r#"{"q":" a "}"#,
+            long.as_str(),
+            r#"{"q":"a\u0001b"}"#,
+        ] {
+            assert_eq!(
+                status(&app, req("POST", "/api/search", Some("key"), bad)).await,
+                StatusCode::BAD_REQUEST,
+                "{bad}"
+            );
+        }
+        assert_eq!(
+            status(&app, req("POST", "/api/search", Some("key"), "{}")).await,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        let body = json(
+            &app,
+            req("POST", "/api/search", Some("key"), r#"{"q":"réunion"}"#),
+        )
+        .await;
+        assert_eq!(body["truncated"], true);
+        assert_eq!(body["hits"].as_array().unwrap().len(), 20);
+        assert_eq!(
+            body["hits"][0],
+            serde_json::json!({"recording_id": 1, "start": 1.5, "before": "la ", "match": "Réunion", "after": " de lundi"})
+        );
+        let app = app_with(Fake {
+            search_hits: 3,
+            ..Fake::default()
+        });
+        let body = json(
+            &app,
+            req("POST", "/api/search", Some("key"), r#"{"q":"reunion"}"#),
+        )
+        .await;
+        assert_eq!(body["truncated"], false);
+        assert_eq!(body["hits"].as_array().unwrap().len(), 3);
     }
 
     #[tokio::test]

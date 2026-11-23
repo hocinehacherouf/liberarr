@@ -13,6 +13,7 @@ use liberarr_core::device::ports::KeyStore;
 use liberarr_core::diarization::Diarization;
 use liberarr_core::jobs::{JobInfo, JobQueue, Rerun, STEPS, rerun, run_job_once};
 use liberarr_core::recordings::{RecordingItem, RecordingStatus};
+use liberarr_core::search::fold;
 use liberarr_core::summaries::{MeetingSummary, SummaryRepo};
 use liberarr_core::transcription::Transcript;
 use liberarr_web::Backend;
@@ -657,30 +658,6 @@ impl Ui {
             s.phase = Phase::Finished(lines, failed, Instant::now());
         });
     }
-}
-
-/// Lowercase, accents removed: "Réunion" and "reunion" compare equal.
-// shortcut: only the accented Latin letters of French and nearby languages are folded; other scripts compare as they are. Upgrade to Unicode normalization if users search other languages.
-fn fold(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.to_lowercase().chars() {
-        match c {
-            'à' | 'â' | 'ä' => out.push('a'),
-            'é' | 'è' | 'ê' | 'ë' => out.push('e'),
-            'î' | 'ï' => out.push('i'),
-            'ô' | 'ö' => out.push('o'),
-            'ù' | 'û' | 'ü' => out.push('u'),
-            'ç' => out.push('c'),
-            'ÿ' => out.push('y'),
-            'ñ' => out.push('n'),
-            'œ' => out.push_str("oe"),
-            'æ' => out.push_str("ae"),
-            // Combining accents: "é" typed as "e" + U+0301 (macOS file names) folds too.
-            '\u{300}'..='\u{36f}' => {}
-            c => out.push(c),
-        }
-    }
-    out
 }
 
 /// A recording matches on the name the list shows for it, untitled ones included.

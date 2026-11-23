@@ -161,6 +161,10 @@
   },
   "palette": {
     "title": "Palette de commandes",
-    "description": "Rechercher un enregistrement, changer de thème ou se déconnecter."
+    "description": "Rechercher un enregistrement ou ce qui a été dit, changer de thème ou se déconnecter.",
+    "transcripts": "Dans les transcriptions",
+    "searching": "Recherche dans les transcriptions…",
+    "searchError": "La recherche dans les transcriptions a échoué.",
+    "moreHits": "Seuls les {{count}} premiers résultats sont affichés : précisez la recherche."
   }
 }

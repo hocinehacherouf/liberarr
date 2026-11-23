@@ -5,6 +5,7 @@ use liberarr_core::diarization::{Diarization, DiarizationRepo, Diarize};
 use liberarr_core::exports::ExportToObsidian;
 use liberarr_core::jobs::{Job, JobInfo, JobQueue, StepHandler, run_job_once};
 use liberarr_core::recordings::{Ingest, Recording, RecordingItem, RecordingRepo};
+use liberarr_core::search::{TranscriptHit, search_transcripts};
 use liberarr_core::summaries::{
     ChatMessage, Llm, MeetingSummary, Summarize, SummaryEditRepo, SummaryRepo, SummaryText,
     ToggleAction,
@@ -276,6 +277,9 @@ impl Backend for App {
     async fn list(&self) -> Result<Vec<RecordingItem>> {
         self.db.list_items().await
     }
+    async fn search(&self, query: &str, max: usize) -> Result<Vec<TranscriptHit>> {
+        search_transcripts(&self.db, &self.db.list_items().await?, query, max).await
+    }
     async fn recording(&self, id: i64) -> Result<Option<Recording>> {
         RecordingRepo::get(&self.db, id).await
     }
@@ -472,6 +476,65 @@ mod tests {
         assert!(matches!(err, Err(Error::Conflict(_))), "{err:?}");
         let err = rt.block_on(Backend::set_speaker_count(&app, spoken, Some(2)));
         assert!(matches!(err, Err(Error::Conflict(_))), "{err:?}");
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    /// The search reads the corrected transcript: an edited name is found, a removed segment is not.
+    #[test]
+    fn search_reads_the_corrected_transcript() {
+        let (home, rt, app) = open("search", false);
+        let id = recording(&rt, &app, "Budget review", "x");
+        let seg = |start, end, text: &str| Segment {
+            start,
+            end,
+            text: text.into(),
+        };
+        let segments = vec![
+            seg(0.0, 4.0, "Bonjour Hélène."),
+            seg(5.0, 9.0, "Le budget secret."),
+            seg(10.0, 12.0, "Fin."),
+        ];
+        rt.block_on(TranscriptRepo::save(
+            &app.db,
+            id,
+            &Transcript {
+                engine: "e".into(),
+                language: None,
+                text: "Bonjour Hélène. Le budget secret. Fin.".into(),
+                segments,
+                has_timestamps: true,
+            },
+        ))
+        .unwrap();
+        let change = |index, current: &str, text: &str| SegmentChange {
+            index,
+            current: current.into(),
+            text: text.into(),
+        };
+        rt.block_on(TranscriptEditRepo::set_edits(
+            &app.db,
+            id,
+            &[
+                change(0, "Bonjour Hélène.", "Bonjour Hélène Martin."),
+                change(1, "Le budget secret.", ""),
+            ],
+        ))
+        .unwrap();
+        let hits = rt.block_on(Backend::search(&app, "martin", 10)).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(
+            (
+                hits[0].recording_id,
+                hits[0].start,
+                hits[0].excerpt.hit.as_str()
+            ),
+            (id, Some(0.0), "Martin")
+        );
+        assert!(
+            rt.block_on(Backend::search(&app, "secret", 10))
+                .unwrap()
+                .is_empty()
+        );
         std::fs::remove_dir_all(&home).unwrap();
     }
 

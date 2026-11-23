@@ -91,6 +91,42 @@ export const useRecording = (id: number) =>
     refetchInterval: (q) => (q.state.data?.status === 'processing' ? POLL_MS : false),
   })
 
+export interface TranscriptHit {
+  recording_id: number
+  /** Seconds; null for a transcript without timestamps. */
+  start: number | null
+  before: string
+  match: string
+  after: string
+}
+
+export interface SearchResult {
+  hits: TranscriptHit[]
+  truncated: boolean
+}
+
+// The server's query rule and page size (liberarr_core::search, POST /api/search).
+export const SEARCH_MIN_CHARS = 2
+export const SEARCH_MAX_CHARS = 200
+export const SEARCH_HITS = 20
+
+/** The query the client may send: control characters turned into spaces, trimmed; null unless 2–200 code points. */
+export function searchQuery(input: string): string | null {
+  const q = input.replace(/\p{Cc}/gu, ' ').trim()
+  const n = [...q].length
+  return n >= SEARCH_MIN_CHARS && n <= SEARCH_MAX_CHARS ? q : null
+}
+
+/** Where something was said. POST, so the query stays out of URLs and access logs. */
+export const useTranscriptSearch = (q: string | null) =>
+  useQuery({
+    // Under 'recordings': an edit invalidates the hits with the rest.
+    queryKey: ['recordings', 'search', q],
+    queryFn: ({ signal }) =>
+      api<SearchResult>('/api/search', { method: 'POST', body: JSON.stringify({ q }), signal }),
+    enabled: q !== null,
+  })
+
 export function useRerun(id: number) {
   const qc = useQueryClient()
   return useMutation({
