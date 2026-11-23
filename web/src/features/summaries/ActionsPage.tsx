@@ -93,8 +93,8 @@ export function ActionsPage() {
           <TabsTrigger value="open">{t('actions.open')}</TabsTrigger>
           <TabsTrigger value="all">{t('actions.all')}</TabsTrigger>
         </TabsList>
-        <TabsContent value="open">{body}</TabsContent>
-        <TabsContent value="all">{body}</TabsContent>
+        {/* One panel, for the selected filter: the body is rendered once. */}
+        <TabsContent value={filter}>{body}</TabsContent>
       </Tabs>
     </div>
   )

@@ -85,12 +85,6 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         <CommandInput placeholder={t('common.search')} value={input} onValueChange={setInput} />
         <CommandList>
           {(q === null || (fresh && !search.isFetching && !search.isError)) && <CommandEmpty>{t('recordings.noMatches')}</CommandEmpty>}
-          <CommandGroup>
-            <CommandItem value={t('palette.goToActions')} onSelect={run(() => void navigate('/actions'))}>
-              <ListChecksIcon aria-hidden="true" />
-              {t('palette.goToActions')}
-            </CommandItem>
-          </CommandGroup>
           {data && data.length > 0 && (
             <CommandGroup heading={t('recordings.title')}>
               {data.map((r) => {
@@ -154,6 +148,12 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               {t('palette.searchError')}
             </p>
           )}
+          <CommandGroup>
+            <CommandItem value={t('palette.goToActions')} onSelect={run(() => void navigate('/actions'))}>
+              <ListChecksIcon aria-hidden="true" />
+              {t('palette.goToActions')}
+            </CommandItem>
+          </CommandGroup>
           <CommandGroup heading={t('theme.title')}>
             {THEMES.map(([name, Icon]) => (
               <CommandItem key={name} value={t(`theme.${name}`)} onSelect={run(() => setTheme(name))}>

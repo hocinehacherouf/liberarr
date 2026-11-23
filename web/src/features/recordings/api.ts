@@ -77,15 +77,17 @@ export interface RecordingDetail extends RecordingItem {
 
 const POLL_MS = 5000
 
+const isProcessing = (list?: RecordingItem[]) => list?.some((r) => r.status === 'processing') ?? false
+
 export const useRecordings = () =>
   useQuery({
     queryKey: ['recordings'],
     queryFn: () => api<RecordingItem[]>('/api/recordings'),
-    refetchInterval: (q) => (q.state.data?.some((r) => r.status === 'processing') ? POLL_MS : false),
+    refetchInterval: (q) => (isProcessing(q.state.data) ? POLL_MS : false),
   })
 
 /** Whether any recording is in progress (what the list and the actions poll on). */
-export const useProcessing = () => useRecordings().data?.some((r) => r.status === 'processing') ?? false
+export const useProcessing = () => isProcessing(useRecordings().data)
 
 export interface RecordingActions {
   recording: RecordingItem
@@ -223,6 +225,13 @@ export function useToggleAction(id: number) {
         method: 'PATCH',
         body: JSON.stringify({ action, done }),
       }),
+    // A poll sent before the PATCH and answered after it would write the old state back: stop them first.
+    onMutate: async () => {
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ['recordings', id] }),
+        qc.cancelQueries({ queryKey: ['recordings', 'actions'] }),
+      ])
+    },
     // The PATCH returns the whole updated array: put it straight into the cached detail and the actions list.
     onSuccess: (actions) => {
       qc.setQueryData<RecordingDetail>(['recordings', id], (d) =>

@@ -110,7 +110,7 @@
       "updateError": "Impossible de mettre à jour l'action.",
       "stale": "Les actions ont changé depuis le chargement de la page. Elles ont été rechargées : réessayez.",
       "markDone": "Marquer « {{action}} » comme faite",
-      "openAt": "Ouvrir « {{action}} » à {{time}}",
+      "openAt": "« {{action}} » à {{time}}",
       "done": "Fait",
       "action": "Action",
       "owner": "Responsable",

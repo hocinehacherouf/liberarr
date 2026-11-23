@@ -110,7 +110,7 @@
       "updateError": "Unable to update the action.",
       "stale": "The actions changed since this page loaded. They have been reloaded: try again.",
       "markDone": "Mark “{{action}}” as done",
-      "openAt": "Open “{{action}}” at {{time}}",
+      "openAt": "“{{action}}” at {{time}}",
       "done": "Done",
       "action": "Action",
       "owner": "Owner",

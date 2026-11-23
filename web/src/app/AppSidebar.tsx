@@ -1,9 +1,9 @@
 import { ChevronsUpDownIcon, ListChecksIcon, UserIcon } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink, useLocation } from 'react-router'
 import { useLogout, useMe } from '@/features/auth/api'
-import { useActions, useProcessing, useRecordings } from '@/features/recordings/api'
+import { useActions, useRecordings } from '@/features/recordings/api'
 import { recordingStatus } from '@/features/recordings/StatusBadge'
 import { recordingTitle } from '@/features/recordings/title'
 import { Logo } from '@/shared/Logo'
@@ -39,19 +39,10 @@ import { ThemeMenu } from '@/app/ThemeMenu'
 
 function ActionsMenu() {
   const { t } = useTranslation()
-  const { data, refetch } = useActions()
+  const { data } = useActions()
   const { pathname } = useLocation()
   const { setOpenMobile } = useSidebar()
   const open = data?.reduce((n, g) => n + g.actions.filter((a) => !a.done).length, 0) ?? 0
-
-  // The one place that refetches when processing ends (a summary may have landed after the last poll):
-  // this entry is always mounted, the page is not.
-  const processing = useProcessing()
-  const wasProcessing = useRef(false)
-  useEffect(() => {
-    if (wasProcessing.current && !processing) void refetch()
-    wasProcessing.current = processing
-  }, [processing, refetch])
 
   return (
     <SidebarMenu>
